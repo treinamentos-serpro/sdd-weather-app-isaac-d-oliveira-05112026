@@ -12,8 +12,8 @@ export default {
         },
         accent: {
           400: '#8b9bff',
-          500: '#6d7cff',
-          600: '#5a67ec',
+          500: '#5a67ec',
+          600: '#4c58d0',
         },
         sun: '#f5b942',
       },

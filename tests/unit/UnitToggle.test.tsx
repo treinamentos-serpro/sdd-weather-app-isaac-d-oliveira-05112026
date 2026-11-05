@@ -1,51 +1,97 @@
-import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect } from 'vitest';
-import { useState } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import UnitToggle from '../../src/components/UnitToggle';
-import CurrentWeather from '../../src/components/CurrentWeather';
-import type { City, CurrentWeather as CurrentWeatherType, Unit } from '../../src/types/weather';
+import type { Unit } from '../../src/types/weather';
 
-const city: City = {
-  id: 1,
-  name: 'Seattle',
-  country: 'Estados Unidos',
-  admin1: 'Washington',
-  latitude: 47.6,
-  longitude: -122.33,
-};
+afterEach(cleanup);
 
-const current: CurrentWeatherType = {
-  time: '2026-06-16T12:00',
-  temperature: 0, // 0°C => 32°F (fácil de verificar)
-  humidity: 80,
-  windSpeed: 10,
-  pressure: 1015,
-  precipitation: 0,
-  weatherCode: 3,
-};
+describe('UnitToggle', () => {
+  it.each<Unit>(['celsius', 'fahrenheit'])('identifica o grupo e a unidade ativa %s', (unit) => {
+    render(<UnitToggle unit={unit} onChange={vi.fn()} />);
 
-function Harness() {
-  const [unit, setUnit] = useState<Unit>('celsius');
-  return (
-    <>
-      <UnitToggle unit={unit} onChange={setUnit} />
-      <CurrentWeather city={city} current={current} unit={unit} />
-    </>
-  );
-}
-
-describe('UnitToggle + CurrentWeather', () => {
-  it('converte a temperatura ao alternar a unidade', async () => {
-    render(<Harness />);
-    expect(screen.getByText('0°')).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('button', { name: '°F' }));
-    expect(screen.getByText('32°')).toBeInTheDocument();
+    const group = screen.getByRole('group', { name: 'Unidade de temperatura' });
+    expect(within(group).getAllByRole('button')).toHaveLength(2);
+    expect(within(group).getByRole('button', { name: '°C' })).toHaveAttribute(
+      'aria-pressed',
+      String(unit === 'celsius'),
+    );
+    expect(within(group).getByRole('button', { name: '°F' })).toHaveAttribute(
+      'aria-pressed',
+      String(unit === 'fahrenheit'),
+    );
   });
 
-  it('expõe os botões com estado pressionado acessível', () => {
-    render(<Harness />);
-    expect(screen.getByRole('button', { name: '°C' })).toHaveAttribute('aria-pressed', 'true');
+  it.each([
+    { unit: 'celsius', target: '°F', expected: 'fahrenheit' },
+    { unit: 'fahrenheit', target: '°C', expected: 'celsius' },
+  ] as const)('notifica a mudança de $unit para $expected', async ({ unit, target, expected }) => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<UnitToggle unit={unit} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: target }));
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(expected);
+  });
+
+  it('reflete a prop atualizada sem manter seleção interna', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<UnitToggle unit="celsius" onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: '°F' }));
+    expect(screen.getByRole('button', { name: '°C', pressed: true })).toBeInTheDocument();
+
+    rerender(<UnitToggle unit="fahrenheit" onChange={onChange} />);
+    expect(screen.getByRole('button', { name: '°F', pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '°C', pressed: false })).toBeInTheDocument();
+  });
+
+  it('não notifica novamente ao ativar a unidade já selecionada', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<UnitToggle unit="celsius" onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: '°C' }));
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('permite navegar com Tab e Shift+Tab e ativar com Enter e Espaço', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<UnitToggle unit="celsius" onChange={onChange} />);
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: '°C' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: '°F' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(onChange).toHaveBeenNthCalledWith(1, 'fahrenheit');
+
+    rerender(<UnitToggle unit="fahrenheit" onChange={onChange} />);
+    await user.tab({ shift: true });
+    expect(screen.getByRole('button', { name: '°C' })).toHaveFocus();
+    await user.keyboard(' ');
+    expect(onChange).toHaveBeenNthCalledWith(2, 'celsius');
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
+  it('não submete um formulário ao trocar a unidade', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn((event) => event.preventDefault());
+    const onChange = vi.fn();
+    render(
+      <form onSubmit={onSubmit}>
+        <UnitToggle unit="celsius" onChange={onChange} />
+      </form>,
+    );
+
+    await user.click(screen.getByRole('button', { name: '°F' }));
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('fahrenheit');
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });
