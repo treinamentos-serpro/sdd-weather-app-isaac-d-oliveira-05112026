@@ -124,7 +124,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Buscar' }));
 
     expect(
-      await screen.findByRole('heading', { name: 'Cidade não encontrada' }),
+      await screen.findByRole('heading', { name: 'Nenhuma cidade encontrada' }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Nenhum resultado para/)).toHaveTextContent('Curitiba');
     expect(screen.queryByRole('article')).not.toBeInTheDocument();

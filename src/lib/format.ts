@@ -22,6 +22,10 @@ export function formatDayLabel(localDate: string, timezone: string, referenceTim
     const today = `${calendar.year}-${calendar.month}-${calendar.day}`;
     if (localDate === today) return 'Hoje';
 
+    const tomorrowDate = new Date(`${today}T12:00:00.000Z`);
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
+    if (localDate === tomorrowDate.toISOString().slice(0, 10)) return 'Amanhã';
+
     return new Intl.DateTimeFormat('pt-BR', {
       timeZone: 'UTC',
       weekday: 'short',
@@ -29,4 +33,19 @@ export function formatDayLabel(localDate: string, timezone: string, referenceTim
   } catch {
     return 'Indisponível';
   }
+}
+
+export function getShortDate(localDate: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) return 'Indisponível';
+
+  const date = new Date(`${localDate}T12:00:00.000Z`);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== localDate) {
+    return 'Indisponível';
+  }
+
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: 'UTC',
+  }).format(date);
 }

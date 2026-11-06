@@ -1,4 +1,4 @@
-import type { City } from '../types/weather';
+import type { City, WeatherData } from '../types/weather';
 
 export class WeatherServiceError extends Error {
   constructor(
@@ -21,6 +21,52 @@ interface GeocodingResult {
 
 interface GeocodingResponse {
   results?: GeocodingResult[];
+}
+
+interface ForecastResponse {
+  timezone?: string;
+  utc_offset_seconds?: number;
+  current?: Record<string, unknown>;
+  daily?: Record<string, unknown>;
+}
+
+const currentFields =
+  'temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,precipitation,weather_code';
+const dailyFields = 'weather_code,temperature_2m_min,temperature_2m_max';
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function arrayNumber(values: unknown, index: number): number | null {
+  return Array.isArray(values) ? finiteNumber(values[index]) : null;
+}
+
+function normalizeReferenceTime(value: unknown, offsetSeconds: unknown): string {
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(value) ||
+    typeof offsetSeconds !== 'number' ||
+    !Number.isFinite(offsetSeconds)
+  ) {
+    throw new WeatherServiceError('Resposta de previsão incompleta ou inválida.');
+  }
+
+  const utcTime = Date.parse(`${value.length === 16 ? `${value}:00` : value}Z`);
+  if (!Number.isFinite(utcTime)) {
+    throw new WeatherServiceError('Resposta de previsão incompleta ou inválida.');
+  }
+  return new Date(utcTime - offsetSeconds * 1000).toISOString();
+}
+
+function isValidTimezone(timezone: unknown): timezone is string {
+  if (typeof timezone !== 'string' || !timezone) return false;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function searchCities(name: string): Promise<City[]> {
@@ -61,5 +107,67 @@ export async function searchCities(name: string): Promise<City[]> {
   } catch (error) {
     if (error instanceof WeatherServiceError) throw error;
     throw new WeatherServiceError('Não foi possível buscar cidades.', undefined, { cause: error });
+  }
+}
+
+export async function getWeather(city: City): Promise<WeatherData> {
+  const params = new URLSearchParams({
+    latitude: String(city.latitude),
+    longitude: String(city.longitude),
+    current: currentFields,
+    daily: dailyFields,
+    timezone: 'auto',
+    temperature_unit: 'celsius',
+    wind_speed_unit: 'kmh',
+    precipitation_unit: 'mm',
+    forecast_days: '5',
+  });
+  const url = `https://api.open-meteo.com/v1/forecast?${params}`;
+
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) {
+      throw new WeatherServiceError('Não foi possível consultar a previsão.', response.status);
+    }
+
+    const data = (await response.json()) as ForecastResponse;
+    if (!data.current || !data.daily || !isValidTimezone(data.timezone)) {
+      throw new WeatherServiceError('Resposta de previsão incompleta ou inválida.');
+    }
+
+    const dailyTimes = Array.isArray(data.daily.time) ? data.daily.time : [];
+    const forecast = dailyTimes
+      .map((localDate, index) => {
+        if (typeof localDate !== 'string') return null;
+        return {
+          localDate,
+          weatherCode: arrayNumber(data.daily?.weather_code, index),
+          minimumC: arrayNumber(data.daily?.temperature_2m_min, index),
+          maximumC: arrayNumber(data.daily?.temperature_2m_max, index),
+        };
+      })
+      .filter((day) => day !== null);
+
+    return {
+      city,
+      timezone: data.timezone,
+      current: {
+        referenceTime: normalizeReferenceTime(data.current.time, data.utc_offset_seconds),
+        temperatureC: finiteNumber(data.current.temperature_2m),
+        apparentTemperatureC: finiteNumber(data.current.apparent_temperature),
+        humidityPercent: finiteNumber(data.current.relative_humidity_2m),
+        windKmh: finiteNumber(data.current.wind_speed_10m),
+        precipitationMm: finiteNumber(data.current.precipitation),
+        weatherCode: finiteNumber(data.current.weather_code),
+        modelRunAt: null,
+      },
+      forecast,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    if (error instanceof WeatherServiceError) throw error;
+    throw new WeatherServiceError('Não foi possível consultar a previsão.', undefined, {
+      cause: error,
+    });
   }
 }

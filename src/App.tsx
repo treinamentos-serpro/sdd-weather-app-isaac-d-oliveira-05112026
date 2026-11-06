@@ -97,7 +97,7 @@ export default function App({
         {state.status === 'loading' && <LoadingState />}
         {state.status === 'empty' && (
           <EmptyState
-            title="Cidade não encontrada"
+            title="Nenhuma cidade encontrada"
             hint={`Nenhum resultado para “${state.query}”. Tente outro nome de cidade.`}
             onSearch={focusSearch}
           />

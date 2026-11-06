@@ -5,6 +5,10 @@ export function convertTemperature(temperatureC: number | null, unit: Unit): num
   return unit === 'fahrenheit' ? (temperatureC * 9) / 5 + 32 : temperatureC;
 }
 
+export function unitLabel(unit: Unit): string {
+  return unit === 'fahrenheit' ? '°F' : '°C';
+}
+
 export function roundTemperature(temperature: number | null): number | null {
   if (temperature === null || !Number.isFinite(temperature)) return null;
   const rounded = Math.sign(temperature) * Math.round(Math.abs(temperature));
@@ -14,5 +18,5 @@ export function roundTemperature(temperature: number | null): number | null {
 export function formatTemperature(temperatureC: number | null, unit: Unit): string {
   const temperature = roundTemperature(convertTemperature(temperatureC, unit));
   if (temperature === null) return 'Indisponível';
-  return `${temperature.toLocaleString('pt-BR')} ${unit === 'fahrenheit' ? '°F' : '°C'}`;
+  return `${temperature.toLocaleString('pt-BR')} ${unitLabel(unit)}`;
 }
