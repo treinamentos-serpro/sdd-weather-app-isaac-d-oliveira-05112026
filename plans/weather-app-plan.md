@@ -265,6 +265,27 @@ São contratos conceituais, mantidos no hook local sem biblioteca de estado glob
 
 ## Error Handling
 
+### Incremento no modo de demonstração
+
+O fluxo atual continua usando `getMockWeather`, sem integrar a seleção de cidades à API real.
+O hook `useWeather` concentra os estados da consulta por nome, encerra o carregamento
+em cinco segundos e repete somente a consulta que falhou quando a pessoa aciona
+“Tentar novamente”, mesmo após editar o campo. Uma resposta tardia não substitui
+o resultado da nova tentativa; requisições HTTP reais também são abortadas após
+cinco segundos pelo serviço. O loader de demonstração não oferece cancelamento.
+As mensagens distinguem timeout, falha de conexão, HTTP e JSON inválido.
+Cache, seleção de cidades, atualização e bloqueio por `Retry-After` continuam no
+escopo das tarefas de integração, não deste incremento.
+
+Validação offline: Vitest simula `fetch` rejeitando com `TypeError`, verifica
+mensagem de conexão e recuperação via retry; timers falsos verificam o limite
+de 5.000 ms e o descarte de resposta tardia. Após a integração à API real,
+adicionar E2E com `context.setOffline(true)` depois de carregar a página,
+confirmar o alerta, restaurar a conexão com `context.setOffline(false)` e acionar
+retry, verificando a mesma operação e a remoção do erro. Alternativamente,
+usar `page.route` com `route.abort('internetdisconnected')` para isolar cada endpoint.
+No modo de demonstração, desconectar a rede não provoca falha de consulta.
+
 Classificar erros com um tipo de domínio, traduzido em mensagem curta e ação adequada na interface. Detalhes técnicos podem ser registrados somente em desenvolvimento; não registrar cidade ou consulta em telemetria. Uma falha da busca anterior ou de outra cidade não pode substituir o estado da consulta vigente.
 
 ```ts

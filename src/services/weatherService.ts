@@ -1,5 +1,7 @@
 import type { City, WeatherData } from '../types/weather';
 
+export const WEATHER_TIMEOUT_MS = 5000;
+
 export class WeatherServiceError extends Error {
   constructor(
     message: string,
@@ -9,6 +11,23 @@ export class WeatherServiceError extends Error {
     super(message, options);
     this.name = 'WeatherServiceError';
   }
+}
+
+export function getWeatherErrorMessage(
+  error: unknown,
+  fallback = 'Não foi possível carregar os dados do clima. Tente novamente.',
+): string {
+  if (error instanceof WeatherServiceError) return error.message;
+  if (error instanceof DOMException && error.name === 'TimeoutError') {
+    return 'A consulta demorou mais de 5 segundos. Tente novamente.';
+  }
+  if (error instanceof TypeError) {
+    return 'Não foi possível conectar ao serviço de clima. Verifique sua conexão e tente novamente.';
+  }
+  if (error instanceof SyntaxError) {
+    return 'O serviço de clima enviou uma resposta inválida. Tente novamente.';
+  }
+  return fallback;
 }
 
 interface GeocodingResult {
@@ -76,9 +95,14 @@ export async function searchCities(name: string): Promise<City[]> {
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=10&language=pt&format=json`;
 
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const response = await fetch(url, { signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS) });
     if (!response.ok) {
-      throw new WeatherServiceError('Não foi possível buscar cidades.', response.status);
+      throw new WeatherServiceError(
+        response.status === 429
+          ? 'O serviço recebeu muitas consultas. Aguarde um momento antes de tentar novamente.'
+          : 'Não foi possível buscar cidades. Tente novamente em alguns instantes.',
+        response.status,
+      );
     }
 
     const data: GeocodingResponse = await response.json();
@@ -106,7 +130,11 @@ export async function searchCities(name: string): Promise<City[]> {
       });
   } catch (error) {
     if (error instanceof WeatherServiceError) throw error;
-    throw new WeatherServiceError('Não foi possível buscar cidades.', undefined, { cause: error });
+    throw new WeatherServiceError(
+      getWeatherErrorMessage(error, 'Não foi possível buscar cidades. Tente novamente.'),
+      undefined,
+      { cause: error },
+    );
   }
 }
 
@@ -125,9 +153,14 @@ export async function getWeather(city: City): Promise<WeatherData> {
   const url = `https://api.open-meteo.com/v1/forecast?${params}`;
 
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const response = await fetch(url, { signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS) });
     if (!response.ok) {
-      throw new WeatherServiceError('Não foi possível consultar a previsão.', response.status);
+      throw new WeatherServiceError(
+        response.status === 429
+          ? 'O serviço recebeu muitas consultas. Aguarde um momento antes de tentar novamente.'
+          : 'Não foi possível consultar a previsão. Tente novamente em alguns instantes.',
+        response.status,
+      );
     }
 
     const data = (await response.json()) as ForecastResponse;
@@ -166,8 +199,10 @@ export async function getWeather(city: City): Promise<WeatherData> {
     };
   } catch (error) {
     if (error instanceof WeatherServiceError) throw error;
-    throw new WeatherServiceError('Não foi possível consultar a previsão.', undefined, {
-      cause: error,
-    });
+    throw new WeatherServiceError(
+      getWeatherErrorMessage(error, 'Não foi possível consultar a previsão. Tente novamente.'),
+      undefined,
+      { cause: error },
+    );
   }
 }

@@ -167,6 +167,28 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'São Paulo' })).toBeInTheDocument();
   });
 
+  it('informa falha offline e retry usa a consulta que falhou mesmo após editar o campo', async () => {
+    const user = userEvent.setup();
+    const loadWeather = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(mockWeatherData);
+    render(<App loadWeather={loadWeather} />);
+
+    const input = screen.getByRole('searchbox', { name: 'Cidade' });
+    await user.type(input, 'São Paulo{Enter}');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Verifique sua conexão');
+    await user.clear(input);
+    await user.type(input, 'Curitiba');
+    await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
+
+    expect(await screen.findByRole('heading', { name: 'São Paulo' })).toBeInTheDocument();
+    expect(loadWeather).toHaveBeenCalledTimes(2);
+    expect(loadWeather).toHaveBeenLastCalledWith('São Paulo');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveFocus();
+  });
+
   it('não busca com entrada vazia ou apenas espaços', async () => {
     const user = userEvent.setup();
     const loadWeather = vi.fn();

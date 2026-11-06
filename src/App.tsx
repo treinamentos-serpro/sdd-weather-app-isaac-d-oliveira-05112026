@@ -7,16 +7,12 @@ import EmptyState from './components/states/EmptyState';
 import ErrorState from './components/states/ErrorState';
 import LoadingState from './components/states/LoadingState';
 import UnitToggle from './components/UnitToggle';
+import useWeather, { type AppState } from './hooks/useWeather';
 import { mockWeatherData } from './mocks/weather';
 import { getMockWeather } from './services/mockWeatherService';
 import type { Unit, WeatherData } from './types/weather';
 
-export type AppState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'empty'; query: string }
-  | { status: 'error'; query: string; message: string }
-  | { status: 'success'; data: WeatherData };
+export type { AppState } from './hooks/useWeather';
 
 interface AppProps {
   initialState?: AppState;
@@ -27,7 +23,7 @@ export default function App({
   initialState = { status: 'success', data: mockWeatherData },
   loadWeather = getMockWeather,
 }: AppProps) {
-  const [state, setState] = useState<AppState>(initialState);
+  const { state, search, retry } = useWeather({ initialState, loadWeather });
   const [unit, setUnit] = useState<Unit>('celsius');
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLElement>(null);
@@ -48,21 +44,15 @@ export default function App({
     searchContainerRef.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus();
   }
 
-  async function handleSearch(city: string) {
-    const query = city.trim();
-    if (!query || state.status === 'loading') return;
+  function handleSearch(city: string) {
+    if (!city.trim() || state.status === 'loading') return;
     submittedControlRef.current = document.activeElement;
-    setState({ status: 'loading' });
-    try {
-      const data = await loadWeather(query);
-      setState(data ? { status: 'success', data } : { status: 'empty', query });
-    } catch {
-      setState({
-        status: 'error',
-        query,
-        message: 'Não foi possível carregar os dados do clima. Tente novamente.',
-      });
-    }
+    return search(city);
+  }
+
+  function handleRetry() {
+    submittedControlRef.current = document.activeElement;
+    return retry();
   }
 
   return (
@@ -102,9 +92,7 @@ export default function App({
             onSearch={focusSearch}
           />
         )}
-        {state.status === 'error' && (
-          <ErrorState message={state.message} onRetry={() => handleSearch(state.query)} />
-        )}
+        {state.status === 'error' && <ErrorState message={state.message} onRetry={handleRetry} />}
         {state.status === 'success' && (
           <>
             <CurrentWeather city={state.data.city} current={state.data.current} unit={unit} />
