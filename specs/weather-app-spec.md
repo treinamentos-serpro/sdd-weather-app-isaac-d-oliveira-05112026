@@ -321,6 +321,7 @@ Cada cenário usa os termos **Dado**, **Quando** e **Então** (Given/When/Then).
 	- **Dado:** os fluxos de busca, seleção de cidade, consulta do clima, previsão, erro e nova tentativa.
 	- **Quando:** forem testados por teclado e manualmente com VoiceOver/Safari no iOS, TalkBack/Chrome no Android, NVDA/Firefox no Windows e VoiceOver/Safari no macOS.
 	- **Então:** todos os controles e informações desses fluxos são encontrados e operáveis, e todos os critérios WCAG 2.2 nível AA aplicáveis passam na avaliação.
+	- **Detalhamento de UX:** o conteúdo consultado expõe `aria-busy` durante loading. Após busca ou nova tentativa, o foco vai para o conteúdo atualizado somente se a pessoa não tiver movido o foco para outro controle durante a espera; a montagem inicial não move o foco. Controles desabilitados não apresentam o estado visual de hover ativo.
 
 ### NFR8 — Privacidade
 

@@ -24,6 +24,7 @@ Open-Meteo / localStorage         lib (regras e formatação)
 - **`lib/`** contém funções determinísticas sem efeitos, como conversão/arredondamento, atualidade, códigos WMO e formatação por locale/fuso. Recebe entradas explícitas e retorna resultados, sem ler relógio, DOM ou storage implicitamente.
 - **`types/`** reúne contratos compartilhados, sem lógica de apresentação ou I/O.
 - `App.tsx` compõe componentes e hook; `main.tsx` inicializa React. Não criar camada de contexto/global store: o estado desta tela cabe no hook.
+- **Integração incremental atual:** `main.tsx` inicia em `idle` e injeta `getWeatherByName`, que encadeia geocoding e forecast somente para correspondência única com contexto completo. Resultados ambíguos são recusados com mensagem explícita, não selecionados arbitrariamente; isso não substitui a seleção explícita planejada. O mock padrão de `App` permanece disponível em demonstrações/testes isolados. O setup de testes carrega os matchers e cleanup do Testing Library; E2E fixa o relógio da fixture e intercepta a rede.
 - O endpoint de previsão retorna clima atual e previsão diária na mesma chamada, reduzindo volume de chamadas e mantendo seus dados associados à mesma resposta.
 - A aplicação funciona sem serviço remoto para persistir usuários ou dados. Não solicitar geolocalização nem enviar telemetria de uso.
 
@@ -311,6 +312,8 @@ type WeatherError =
 Cache elegível em qualquer falha: `storedAt` parseável com idade não negativa de até três horas, inclusive, e timestamp meteorológico de origem parseável e não futuro. O prazo é contado desde `storedAt`, não da referência meteorológica. Apresentar cache elegível com indicação stale e horário meteorológico de origem; sem cache elegível, não exibir dados antigos. Atualizações válidas substituem o cache; respostas inválidas não o promovem a dado atual (RF8).
 
 ## Testing Strategy
+
+- **Melhorias incrementais de performance/UX (AC42):** manter a gestão condicional de foco no conteúdo após busca/retry, sem roubar foco nem focar na montagem inicial; expor `aria-busy` no conteúdo durante loading e restringir hover a botões habilitados. Memoizar somente a validação de completude da previsão com dependências `forecast`, `timezone` e `referenceTime`, evitando recriar formatadores nessa validação ao alternar unidades. Cobrir transições de busy/foco e atualização das entradas da previsão com Testing Library; não adicionar memoização generalizada de componentes ou callbacks.
 
 - **Vitest — funções puras (`lib/`):** conversão °C/°F, conversão antes do arredondamento e empates afastados de zero; códigos WMO conhecidos/desconhecidos; ordenação estável e elegibilidade de seleção; normalização do horário local com o offset do provedor; formatação pt-BR/24h e datas no fuso da cidade; atualidade nos limites de 60 minutos; TTL de cache de três horas; interpretação de `Retry-After`. Usar entradas fixas e relógio controlado, sem rede ou DOM.
 - **Vitest — services:** substituir `fetch` por mock e validar URL/parâmetros, parsing e normalização de respostas geocoding/forecast, valores ausentes, arrays diárias incompletas, HTTP, rede, timeout/abort e `429`. Mockar storage para validar serialização, dados inválidos e fallback de cache. Não chamar o serviço real nos testes automatizados.

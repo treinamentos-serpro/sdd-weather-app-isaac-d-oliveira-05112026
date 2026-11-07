@@ -20,7 +20,7 @@ describe('ForecastList', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(5);
     expect(screen.getAllByRole('article')).toHaveLength(5);
     expect(screen.getByRole('heading', { name: 'Hoje' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'sex.' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Amanhã' })).toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
@@ -73,5 +73,39 @@ describe('ForecastList', () => {
 
     expect(screen.getByText('77 °F')).toBeInTheDocument();
     expect(screen.queryByText('25 °C')).not.toBeInTheDocument();
+  });
+
+  it('reavalia a completude quando os dados da previsão mudam', () => {
+    const { rerender } = render(<ForecastList {...props} unit="celsius" />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    rerender(<ForecastList {...props} forecast={props.forecast.slice(0, 2)} unit="fahrenheit" />);
+    expect(screen.getByRole('status')).toHaveTextContent('Previsão incompleta.');
+
+    rerender(<ForecastList {...props} unit="fahrenheit" />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('reavalia a completude quando o horário de referência muda', () => {
+    const { rerender } = render(<ForecastList {...props} unit="celsius" />);
+
+    rerender(<ForecastList {...props} unit="celsius" referenceTime="2026-11-06T13:00:00Z" />);
+    expect(screen.getByRole('status')).toHaveTextContent('Previsão incompleta.');
+
+    rerender(<ForecastList {...props} unit="celsius" />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('reavalia o dia atual quando o fuso muda', () => {
+    const referenceTime = '2026-11-06T01:00:00Z';
+    const { rerender } = render(
+      <ForecastList {...props} unit="celsius" referenceTime={referenceTime} />,
+    );
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    rerender(
+      <ForecastList {...props} unit="celsius" referenceTime={referenceTime} timezone="UTC" />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Previsão incompleta.');
   });
 });

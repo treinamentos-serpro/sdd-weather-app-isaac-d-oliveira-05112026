@@ -80,7 +80,7 @@ describe('ForecastCard', () => {
   it('usa o calendário da cidade na virada do dia', () => {
     render(<ForecastCard {...props} unit="celsius" referenceTime="2026-11-05T01:00:00Z" />);
 
-    expect(screen.getByRole('heading', { name: 'qui.' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Amanhã' })).toBeInTheDocument();
     expect(screen.queryByText('Hoje')).not.toBeInTheDocument();
   });
 });

@@ -1,0 +1,14 @@
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App';
+import { getWeatherByName } from './services/weatherService';
+import './styles/index.css';
+
+const root = document.getElementById('root');
+if (!root) throw new Error('Elemento raiz da aplicação não encontrado.');
+
+createRoot(root).render(
+  <StrictMode>
+    <App initialState={{ status: 'idle' }} loadWeather={getWeatherByName} />
+  </StrictMode>,
+);

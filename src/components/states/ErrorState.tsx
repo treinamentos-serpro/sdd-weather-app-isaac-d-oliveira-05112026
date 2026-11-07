@@ -16,7 +16,7 @@ export default function ErrorState({ message, onRetry, disabled = false }: Error
         type="button"
         onClick={onRetry}
         disabled={disabled}
-        className="mt-4 inline-flex min-h-11 max-w-full items-center justify-center gap-2 rounded-lg bg-accent-500 px-4 py-3 text-sm font-medium text-white hover:bg-accent-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-400 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-4 inline-flex min-h-11 max-w-full items-center justify-center gap-2 rounded-lg bg-accent-500 px-4 py-3 text-sm font-medium text-white enabled:hover:bg-accent-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-400 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <RotateCw aria-hidden="true" className="h-4 w-4 shrink-0" />
         <span className="min-w-0 break-words">Tentar novamente</span>

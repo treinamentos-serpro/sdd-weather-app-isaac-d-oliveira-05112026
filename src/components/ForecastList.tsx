@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useMemo } from 'react';
 import { formatDayLabel } from '../lib/format';
 import { getWeatherCondition } from '../lib/weatherCodes';
 import type { Unit } from '../types/weather';
@@ -18,23 +18,26 @@ export default function ForecastList({
   referenceTime = new Date().toISOString(),
 }: ForecastListProps) {
   const headingId = useId();
-  const firstDate = forecast[0]?.localDate;
-  const firstDayTime = firstDate ? Date.parse(`${firstDate}T00:00:00Z`) : Number.NaN;
-  const incomplete =
-    forecast.length !== 5 ||
-    !firstDate ||
-    formatDayLabel(firstDate, timezone, referenceTime) !== 'Hoje' ||
-    forecast.some(
-      (day, index) =>
-        day.minimumC === null ||
-        day.maximumC === null ||
-        !Number.isFinite(day.minimumC) ||
-        !Number.isFinite(day.maximumC) ||
-        day.minimumC > day.maximumC ||
-        getWeatherCondition(day.weatherCode).icon === null ||
-        formatDayLabel(day.localDate, timezone, referenceTime) === 'Indisponível' ||
-        Date.parse(`${day.localDate}T00:00:00Z`) !== firstDayTime + index * 86_400_000,
+  const incomplete = useMemo(() => {
+    const firstDate = forecast[0]?.localDate;
+    const firstDayTime = firstDate ? Date.parse(`${firstDate}T00:00:00Z`) : Number.NaN;
+    return (
+      forecast.length !== 5 ||
+      !firstDate ||
+      formatDayLabel(firstDate, timezone, referenceTime) !== 'Hoje' ||
+      forecast.some(
+        (day, index) =>
+          day.minimumC === null ||
+          day.maximumC === null ||
+          !Number.isFinite(day.minimumC) ||
+          !Number.isFinite(day.maximumC) ||
+          day.minimumC > day.maximumC ||
+          getWeatherCondition(day.weatherCode).icon === null ||
+          formatDayLabel(day.localDate, timezone, referenceTime) === 'Indisponível' ||
+          Date.parse(`${day.localDate}T00:00:00Z`) !== firstDayTime + index * 86_400_000,
+      )
     );
+  }, [forecast, timezone, referenceTime]);
 
   return (
     <section aria-labelledby={headingId} className="w-full min-w-0 py-6 text-white">

@@ -66,6 +66,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 - **Dependências:** —
 - **Arquivos prováveis:** `src/main.tsx`, `src/App.tsx`
 - **Requisitos:** NFR7
+- **Refinamento de validação:** restaurar o bootstrap ausente e conectar a busca ao serviço real para que E2E valide a API interceptada, preservando o mock em demonstrações isoladas. Recusar resultados ambíguos até implementar a seleção explícita de T-24.
 
 ### T-02 — Preparar estilos globais e Tailwind
 - **Tipo:** Infra
@@ -74,6 +75,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 - **Dependências:** T-01
 - **Arquivos prováveis:** `src/styles/index.css`, `tailwind.config.js`
 - **Requisitos:** NFR1; AC49
+- **Refinamento de validação:** restaurar as diretivas globais ausentes e o setup do Testing Library; ajustar expectativas de previsão e E2E aos dados efetivamente fornecidos pelas fixtures.
 
 ### T-03 — Definir contratos compartilhados de clima
 - **Tipo:** Data
@@ -460,6 +462,11 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 - **Dependências:** T-40–T-43, T-52
 - **Arquivos prováveis:** `tests/e2e/responsive.spec.ts`, `docs/qa/compatibility-checklist.md`
 - **Requisitos:** NFR1, NFR4, NFR7; AC42, AC49
+
+#### Refinamento incremental — performance/UX de baixo risco
+
+- **Escopo:** expor `aria-busy` no conteúdo durante loading, preservar o foco condicional após busca/retry e restringir hover a botões habilitados. Memoizar a validação da previsão sem incluir a unidade nas dependências, mantendo atualização ao mudar dados, fuso ou horário de referência.
+- **Verificação:** Testing Library cobre busy durante/depois da consulta, foco por clique/teclado/retry, ausência de foco inicial, preservação de interação durante a espera e invalidação da validação da previsão. Executar `pnpm lint`, `pnpm build` e `pnpm test`.
 
 ## Entrega 7 — Operação e validação de produto
 

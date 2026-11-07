@@ -81,6 +81,7 @@ export default function App({
         ref={contentRef}
         id="main-content"
         tabIndex={-1}
+        aria-busy={state.status === 'loading'}
         className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-400 sm:px-6"
       >
         {state.status === 'idle' && <EmptyState onSearch={focusSearch} />}
@@ -107,7 +108,10 @@ export default function App({
       </main>
       <footer className="border-t border-white/10 px-4 py-5 text-sm text-white/70 sm:px-6">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:justify-between sm:gap-6">
-          <p>Dados de demonstração. Previsões podem mudar. Não oferecemos alertas de emergência.</p>
+          <p>
+            {loadWeather === getMockWeather && 'Dados de demonstração. '}
+            Previsões podem mudar. Não oferecemos alertas de emergência.
+          </p>
           <a
             href="https://open-meteo.com/"
             target="_blank"

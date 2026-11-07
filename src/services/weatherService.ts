@@ -138,6 +138,18 @@ export async function searchCities(name: string): Promise<City[]> {
   }
 }
 
+export async function getWeatherByName(name: string): Promise<WeatherData | null> {
+  const cities = await searchCities(name);
+  if (cities.length === 0) return null;
+  const city = cities[0];
+  if (cities.length !== 1 || !city.admin1?.trim() || !city.country?.trim()) {
+    throw new WeatherServiceError(
+      'A busca precisa de uma cidade com contexto único. Tente um nome mais específico.',
+    );
+  }
+  return getWeather(city);
+}
+
 export async function getWeather(city: City): Promise<WeatherData> {
   const params = new URLSearchParams({
     latitude: String(city.latitude),

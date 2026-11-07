@@ -19,6 +19,8 @@ describe('App', () => {
 
     expect(screen.getByRole('heading', { name: 'Weather App', level: 1 })).toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Cidade' })).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
+    expect(document.body).toHaveFocus();
     expect(screen.getByRole('group', { name: 'Unidade de temperatura' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'São Paulo' })).toBeInTheDocument();
     expect(screen.getByText('23 °C')).toBeInTheDocument();
@@ -67,6 +69,7 @@ describe('App', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('Carregando dados do clima...');
     expect(screen.getByRole('searchbox', { name: 'Cidade' })).toBeDisabled();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByRole('article')).not.toBeInTheDocument();
   });
 
@@ -82,6 +85,7 @@ describe('App', () => {
     await user.type(screen.getByRole('searchbox', { name: 'Cidade' }), '  São Paulo  ');
     await user.click(screen.getByRole('button', { name: 'Buscar' }));
     expect(screen.getByRole('status')).toHaveTextContent('Carregando');
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByRole('searchbox', { name: 'Cidade' })).toBeDisabled();
     expect(loadWeather).toHaveBeenCalledExactlyOnceWith('São Paulo');
     await user.click(screen.getByRole('button', { name: '°F' }));
@@ -94,10 +98,14 @@ describe('App', () => {
     expect(screen.getByText('74 °F')).toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Cidade' })).toBeEnabled();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
     expect(screen.getByRole('button', { name: '°F' })).toHaveFocus();
   });
 
-  it('recupera o foco no conteúdo após uma busca por teclado', async () => {
+  it.each([
+    'teclado',
+    'clique',
+  ])('recupera o foco no conteúdo após uma busca por %s', async (method) => {
     const user = userEvent.setup();
     let resolveWeather!: (data: WeatherData | null) => void;
     const pending = new Promise<WeatherData | null>((resolve) => {
@@ -105,13 +113,21 @@ describe('App', () => {
     });
     render(<App loadWeather={() => pending} />);
 
-    await user.type(screen.getByRole('searchbox', { name: 'Cidade' }), 'São Paulo{Enter}');
+    await user.type(screen.getByRole('searchbox', { name: 'Cidade' }), 'São Paulo');
+    if (method === 'teclado') {
+      await user.keyboard('{Enter}');
+    } else {
+      await user.click(screen.getByRole('button', { name: 'Buscar' }));
+    }
+    expect(screen.getByRole('main')).not.toHaveFocus();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
     await act(async () => {
       resolveWeather(mockWeatherData);
       await pending;
     });
 
     expect(screen.getByRole('main')).toHaveFocus();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
     await user.tab();
     expect(screen.getByRole('link', { name: 'Open-Meteo' })).toHaveFocus();
   });
@@ -129,6 +145,7 @@ describe('App', () => {
     expect(screen.getByText(/Nenhum resultado para/)).toHaveTextContent('Curitiba');
     expect(screen.queryByRole('article')).not.toBeInTheDocument();
     expect(screen.getByRole('main')).toHaveFocus();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
   });
 
   it('mostra error e repete a mesma consulta ao tentar novamente', async () => {
@@ -145,11 +162,14 @@ describe('App', () => {
       'Não foi possível carregar os dados do clima.',
     );
     expect(screen.getByRole('main')).toHaveFocus();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
     await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
 
     expect(await screen.findByRole('heading', { name: 'São Paulo' })).toBeInTheDocument();
     expect(loadWeather).toHaveBeenCalledTimes(2);
     expect(loadWeather).toHaveBeenNthCalledWith(2, 'São Paulo');
+    expect(screen.getByRole('main')).toHaveFocus();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
   });
 
   it('aceita um estado de erro inicial para demonstração e retry', async () => {
