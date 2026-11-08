@@ -6,11 +6,16 @@ export class WeatherServiceError extends Error {
   constructor(
     message: string,
     public readonly status?: number,
-    options?: ErrorOptions,
+    options?: ErrorOptions & { retryAt?: number; city?: City },
   ) {
     super(message, options);
     this.name = 'WeatherServiceError';
+    this.retryAt = options?.retryAt;
+    this.city = options?.city;
   }
+
+  readonly retryAt?: number;
+  readonly city?: City;
 }
 
 export function getWeatherErrorMessage(
@@ -30,28 +35,54 @@ export function getWeatherErrorMessage(
   return fallback;
 }
 
-interface GeocodingResult {
-  name: string;
-  admin1?: string | null;
-  country?: string | null;
-  latitude: number;
-  longitude: number;
-}
-
-interface GeocodingResponse {
-  results?: GeocodingResult[];
-}
-
-interface ForecastResponse {
-  timezone?: string;
-  utc_offset_seconds?: number;
-  current?: Record<string, unknown>;
-  daily?: Record<string, unknown>;
-}
-
 const currentFields =
   'temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,precipitation,weather_code';
 const dailyFields = 'weather_code,temperature_2m_min,temperature_2m_max';
+
+export type WeatherLookupResult = WeatherData | City[] | null;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validCoordinates(latitude: unknown, longitude: unknown): boolean {
+  return (
+    typeof latitude === 'number' &&
+    Number.isFinite(latitude) &&
+    Math.abs(latitude) <= 90 &&
+    typeof longitude === 'number' &&
+    Number.isFinite(longitude) &&
+    Math.abs(longitude) <= 180
+  );
+}
+
+function retryAt(response: Response): number {
+  const now = Date.now();
+  const header = response.headers?.get('Retry-After')?.trim();
+  if (header && /^\d+$/.test(header)) {
+    const deadline = now + Number(header) * 1000;
+    if (Number.isFinite(deadline)) return deadline;
+  }
+  const httpDate =
+    /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+  const obsoleteHttpDate =
+    /^(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2} \d{2}:\d{2}:\d{2} GMT|(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?: \d|\d{2}) \d{2}:\d{2}:\d{2} \d{4})$/;
+  if (header && (httpDate.test(header) || obsoleteHttpDate.test(header))) {
+    const deadline = Date.parse(header);
+    if (Number.isFinite(deadline)) return Math.max(now, deadline);
+  }
+  return now + 60_000;
+}
+
+function httpError(response: Response, message: string, city?: City): WeatherServiceError {
+  return new WeatherServiceError(
+    response.status === 429
+      ? 'O serviço recebeu muitas consultas. Aguarde um momento antes de tentar novamente.'
+      : message,
+    response.status,
+    { retryAt: response.status === 429 ? retryAt(response) : undefined, city },
+  );
+}
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -66,13 +97,15 @@ function normalizeReferenceTime(value: unknown, offsetSeconds: unknown): string 
     typeof value !== 'string' ||
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(value) ||
     typeof offsetSeconds !== 'number' ||
-    !Number.isFinite(offsetSeconds)
+    !Number.isInteger(offsetSeconds) ||
+    Math.abs(offsetSeconds) > 86400
   ) {
     throw new WeatherServiceError('Resposta de previsão incompleta ou inválida.');
   }
 
-  const utcTime = Date.parse(`${value.length === 16 ? `${value}:00` : value}Z`);
-  if (!Number.isFinite(utcTime)) {
+  const localTime = value.length === 16 ? `${value}:00` : value;
+  const utcTime = Date.parse(`${localTime}Z`);
+  if (!Number.isFinite(utcTime) || new Date(utcTime).toISOString().slice(0, 19) !== localTime) {
     throw new WeatherServiceError('Resposta de previsão incompleta ou inválida.');
   }
   return new Date(utcTime - offsetSeconds * 1000).toISOString();
@@ -88,46 +121,52 @@ function isValidTimezone(timezone: unknown): timezone is string {
   }
 }
 
-export async function searchCities(name: string): Promise<City[]> {
+export async function searchCities(name: string, signal?: AbortSignal): Promise<City[]> {
   const query = name.trim();
   if (!query) return [];
 
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=10&language=pt&format=json`;
 
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS) });
+    const response = await fetch(url, {
+      signal: signal ?? AbortSignal.timeout(WEATHER_TIMEOUT_MS),
+    });
     if (!response.ok) {
-      throw new WeatherServiceError(
-        response.status === 429
-          ? 'O serviço recebeu muitas consultas. Aguarde um momento antes de tentar novamente.'
-          : 'Não foi possível buscar cidades. Tente novamente em alguns instantes.',
-        response.status,
+      throw httpError(
+        response,
+        'Não foi possível buscar cidades. Tente novamente em alguns instantes.',
       );
     }
 
-    const data: GeocodingResponse = await response.json();
-    return (data.results ?? [])
-      .filter(
-        (result) =>
-          typeof result.name === 'string' &&
-          result.name.trim().length > 0 &&
-          Number.isFinite(result.latitude) &&
-          Math.abs(result.latitude) <= 90 &&
-          Number.isFinite(result.longitude) &&
-          Math.abs(result.longitude) <= 180,
+    const data: unknown = await response.json();
+    if (!isRecord(data) || (data.results !== undefined && !Array.isArray(data.results))) {
+      throw new WeatherServiceError('Resposta de busca inválida.');
+    }
+    const results: unknown[] = data.results ?? [];
+    return results.flatMap((result): City[] => {
+      if (
+        !isRecord(result) ||
+        typeof result.name !== 'string' ||
+        !result.name.trim() ||
+        typeof result.latitude !== 'number' ||
+        typeof result.longitude !== 'number' ||
+        !validCoordinates(result.latitude, result.longitude)
       )
-      .map((result) => {
-        const admin1 = result.admin1 ?? null;
-        const country = result.country ?? null;
-        return {
-          id: JSON.stringify([result.name, admin1, country, result.latitude, result.longitude]),
-          name: result.name,
+        return [];
+      const { name, latitude, longitude } = result;
+      const admin1 = typeof result.admin1 === 'string' ? result.admin1 : null;
+      const country = typeof result.country === 'string' ? result.country : null;
+      return [
+        {
+          id: JSON.stringify([name, admin1, country, latitude, longitude]),
+          name,
           admin1,
           country,
-          latitude: result.latitude,
-          longitude: result.longitude,
-        };
-      });
+          latitude,
+          longitude,
+        },
+      ];
+    });
   } catch (error) {
     if (error instanceof WeatherServiceError) throw error;
     throw new WeatherServiceError(
@@ -138,19 +177,44 @@ export async function searchCities(name: string): Promise<City[]> {
   }
 }
 
-export async function getWeatherByName(name: string): Promise<WeatherData | null> {
-  const cities = await searchCities(name);
+export async function getWeatherByName(
+  name: string,
+  signal?: AbortSignal,
+  onCity?: (city: City) => void,
+): Promise<WeatherLookupResult> {
+  const requestSignal = signal ?? AbortSignal.timeout(WEATHER_TIMEOUT_MS);
+  const cities = await searchCities(name, requestSignal);
   if (cities.length === 0) return null;
-  const city = cities[0];
-  if (cities.length !== 1 || !city.admin1?.trim() || !city.country?.trim()) {
-    throw new WeatherServiceError(
-      'A busca precisa de uma cidade com contexto único. Tente um nome mais específico.',
-    );
+  const query = name.trim().toLocaleLowerCase('pt-BR');
+  const orderedCities = cities
+    .map((city, index) => ({ city, index }))
+    .sort((left, right) => {
+      const priority = (city: City) => {
+        const cityName = city.name.toLocaleLowerCase('pt-BR');
+        if (cityName === query) return 0;
+        if (cityName.startsWith(query)) return 1;
+        return 2;
+      };
+      return priority(left.city) - priority(right.city) || left.index - right.index;
+    })
+    .map(({ city }) => city);
+  if (
+    orderedCities.length !== 1 ||
+    !orderedCities[0].admin1?.trim() ||
+    !orderedCities[0].country?.trim()
+  ) {
+    return orderedCities;
   }
-  return getWeather(city);
+  const city = orderedCities[0];
+  requestSignal.throwIfAborted();
+  onCity?.(city);
+  return getWeather(city, requestSignal);
 }
 
-export async function getWeather(city: City): Promise<WeatherData> {
+export async function getWeather(city: City, signal?: AbortSignal): Promise<WeatherData> {
+  if (!validCoordinates(city.latitude, city.longitude)) {
+    throw new WeatherServiceError('Coordenadas da cidade inválidas.', undefined, { city });
+  }
   const params = new URLSearchParams({
     latitude: String(city.latitude),
     longitude: String(city.longitude),
@@ -165,30 +229,37 @@ export async function getWeather(city: City): Promise<WeatherData> {
   const url = `https://api.open-meteo.com/v1/forecast?${params}`;
 
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS) });
+    const response = await fetch(url, {
+      signal: signal ?? AbortSignal.timeout(WEATHER_TIMEOUT_MS),
+    });
     if (!response.ok) {
-      throw new WeatherServiceError(
-        response.status === 429
-          ? 'O serviço recebeu muitas consultas. Aguarde um momento antes de tentar novamente.'
-          : 'Não foi possível consultar a previsão. Tente novamente em alguns instantes.',
-        response.status,
+      throw httpError(
+        response,
+        'Não foi possível consultar a previsão. Tente novamente em alguns instantes.',
+        city,
       );
     }
 
-    const data = (await response.json()) as ForecastResponse;
-    if (!data.current || !data.daily || !isValidTimezone(data.timezone)) {
+    const data: unknown = await response.json();
+    if (
+      !isRecord(data) ||
+      !isRecord(data.current) ||
+      !isRecord(data.daily) ||
+      !isValidTimezone(data.timezone)
+    ) {
       throw new WeatherServiceError('Resposta de previsão incompleta ou inválida.');
     }
 
-    const dailyTimes = Array.isArray(data.daily.time) ? data.daily.time : [];
+    const { current, daily } = data;
+    const dailyTimes: unknown[] = Array.isArray(daily.time) ? daily.time : [];
     const forecast = dailyTimes
       .map((localDate, index) => {
         if (typeof localDate !== 'string') return null;
         return {
           localDate,
-          weatherCode: arrayNumber(data.daily?.weather_code, index),
-          minimumC: arrayNumber(data.daily?.temperature_2m_min, index),
-          maximumC: arrayNumber(data.daily?.temperature_2m_max, index),
+          weatherCode: arrayNumber(daily.weather_code, index),
+          minimumC: arrayNumber(daily.temperature_2m_min, index),
+          maximumC: arrayNumber(daily.temperature_2m_max, index),
         };
       })
       .filter((day) => day !== null);
@@ -197,24 +268,28 @@ export async function getWeather(city: City): Promise<WeatherData> {
       city,
       timezone: data.timezone,
       current: {
-        referenceTime: normalizeReferenceTime(data.current.time, data.utc_offset_seconds),
-        temperatureC: finiteNumber(data.current.temperature_2m),
-        apparentTemperatureC: finiteNumber(data.current.apparent_temperature),
-        humidityPercent: finiteNumber(data.current.relative_humidity_2m),
-        windKmh: finiteNumber(data.current.wind_speed_10m),
-        precipitationMm: finiteNumber(data.current.precipitation),
-        weatherCode: finiteNumber(data.current.weather_code),
+        referenceTime: normalizeReferenceTime(current.time, data.utc_offset_seconds),
+        temperatureC: finiteNumber(current.temperature_2m),
+        apparentTemperatureC: finiteNumber(current.apparent_temperature),
+        humidityPercent: finiteNumber(current.relative_humidity_2m),
+        windKmh: finiteNumber(current.wind_speed_10m),
+        precipitationMm: finiteNumber(current.precipitation),
+        weatherCode: finiteNumber(current.weather_code),
         modelRunAt: null,
       },
       forecast,
       fetchedAt: new Date().toISOString(),
     };
   } catch (error) {
-    if (error instanceof WeatherServiceError) throw error;
+    if (error instanceof WeatherServiceError && error.city) throw error;
     throw new WeatherServiceError(
       getWeatherErrorMessage(error, 'Não foi possível consultar a previsão. Tente novamente.'),
-      undefined,
-      { cause: error },
+      error instanceof WeatherServiceError ? error.status : undefined,
+      {
+        cause: error,
+        retryAt: error instanceof WeatherServiceError ? error.retryAt : undefined,
+        city,
+      },
     );
   }
 }

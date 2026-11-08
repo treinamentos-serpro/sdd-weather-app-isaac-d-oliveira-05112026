@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/App';
 import { mockWeatherData } from '../../src/mocks/weather';
 import { getMockWeather } from '../../src/services/mockWeatherService';
-import type { WeatherData } from '../../src/types/weather';
+import type { City, WeatherData } from '../../src/types/weather';
 
 afterEach(() => {
   cleanup();
@@ -87,7 +87,11 @@ describe('App', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Carregando');
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByRole('searchbox', { name: 'Cidade' })).toBeDisabled();
-    expect(loadWeather).toHaveBeenCalledExactlyOnceWith('São Paulo');
+    expect(loadWeather).toHaveBeenCalledExactlyOnceWith(
+      'São Paulo',
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
     await user.click(screen.getByRole('button', { name: '°F' }));
     await act(async () => {
       resolveWeather(mockWeatherData);
@@ -148,6 +152,57 @@ describe('App', () => {
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
   });
 
+  it('permite escolher entre cidades ambíguas antes de carregar a previsão', async () => {
+    const user = userEvent.setup();
+    const cities: City[] = [
+      {
+        id: 'pinhais-parana',
+        name: 'Pinhais',
+        admin1: 'Paraná',
+        country: 'Brasil',
+        latitude: -25.44,
+        longitude: -49.19,
+      },
+      {
+        id: 'pinhais-santa-catarina',
+        name: 'Pinhais',
+        admin1: 'Santa Catarina',
+        country: 'Brasil',
+        latitude: -26.1,
+        longitude: -49.2,
+      },
+    ];
+    const loadWeather = vi.fn().mockResolvedValue(cities);
+    const loadCityWeather = vi.fn().mockResolvedValue({
+      ...mockWeatherData,
+      city: cities[0],
+    });
+    render(
+      <App
+        initialState={{ status: 'idle' }}
+        loadWeather={loadWeather}
+        loadCityWeather={loadCityWeather}
+      />,
+    );
+
+    await user.type(screen.getByRole('searchbox', { name: 'Cidade' }), 'Pinhais');
+    await user.click(screen.getByRole('button', { name: 'Buscar' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Selecione uma cidade' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pinhais, Paraná, Brasil' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Pinhais, Santa Catarina, Brasil' }),
+    ).toBeInTheDocument();
+    expect(loadCityWeather).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Pinhais, Paraná, Brasil' }));
+
+    expect(await screen.findByRole('heading', { name: 'Pinhais' })).toBeInTheDocument();
+    expect(loadCityWeather).toHaveBeenCalledExactlyOnceWith(cities[0], expect.any(AbortSignal));
+  });
+
   it('mostra error e repete a mesma consulta ao tentar novamente', async () => {
     const user = userEvent.setup();
     const loadWeather = vi
@@ -167,7 +222,12 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: 'São Paulo' })).toBeInTheDocument();
     expect(loadWeather).toHaveBeenCalledTimes(2);
-    expect(loadWeather).toHaveBeenNthCalledWith(2, 'São Paulo');
+    expect(loadWeather).toHaveBeenNthCalledWith(
+      2,
+      'São Paulo',
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
     expect(screen.getByRole('main')).toHaveFocus();
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
   });
@@ -204,7 +264,11 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: 'São Paulo' })).toBeInTheDocument();
     expect(loadWeather).toHaveBeenCalledTimes(2);
-    expect(loadWeather).toHaveBeenLastCalledWith('São Paulo');
+    expect(loadWeather).toHaveBeenLastCalledWith(
+      'São Paulo',
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('main')).toHaveFocus();
   });

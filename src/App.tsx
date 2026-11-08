@@ -10,20 +10,32 @@ import UnitToggle from './components/UnitToggle';
 import useWeather, { type AppState } from './hooks/useWeather';
 import { mockWeatherData } from './mocks/weather';
 import { getMockWeather } from './services/mockWeatherService';
-import type { Unit, WeatherData } from './types/weather';
+import type { WeatherLookupResult } from './services/weatherService';
+import { getWeather } from './services/weatherService';
+import type { City, Unit, WeatherData } from './types/weather';
 
 export type { AppState } from './hooks/useWeather';
 
 interface AppProps {
   initialState?: AppState;
-  loadWeather?: (city: string) => Promise<WeatherData | null>;
+  loadWeather?: (
+    city: string,
+    signal?: AbortSignal,
+    onCity?: (city: City) => void,
+  ) => Promise<WeatherLookupResult>;
+  loadCityWeather?: (city: City, signal?: AbortSignal) => Promise<WeatherData>;
 }
 
 export default function App({
   initialState = { status: 'success', data: mockWeatherData },
   loadWeather = getMockWeather,
+  loadCityWeather = getWeather,
 }: AppProps) {
-  const { state, search, retry } = useWeather({ initialState, loadWeather });
+  const { state, search, selectCity, retry, retryBlocked } = useWeather({
+    initialState,
+    loadWeather,
+    loadCityWeather,
+  });
   const [unit, setUnit] = useState<Unit>('celsius');
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLElement>(null);
@@ -53,6 +65,11 @@ export default function App({
   function handleRetry() {
     submittedControlRef.current = document.activeElement;
     return retry();
+  }
+
+  function handleSelectCity(city: City) {
+    submittedControlRef.current = document.activeElement;
+    return selectCity(city);
   }
 
   return (
@@ -86,6 +103,38 @@ export default function App({
       >
         {state.status === 'idle' && <EmptyState onSearch={focusSearch} />}
         {state.status === 'loading' && <LoadingState />}
+        {state.status === 'choices' && (
+          <section aria-labelledby="city-choices-title" className="space-y-4">
+            <div>
+              <h2 id="city-choices-title" className="text-xl font-semibold">
+                Selecione uma cidade
+              </h2>
+              <p className="mt-1 text-sm text-white/70">
+                Confirme a localização de “{state.query}” para carregar a previsão.
+              </p>
+            </div>
+            <ul className="grid gap-2">
+              {state.cities.map((city) => {
+                const location = [city.admin1, city.country].filter(Boolean).join(', ');
+                return (
+                  <li key={city.id}>
+                    <button
+                      type="button"
+                      aria-label={`${city.name}, ${location || 'Contexto geográfico indisponível'}`}
+                      onClick={() => handleSelectCity(city)}
+                      className="w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-left hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-400"
+                    >
+                      <span className="block font-medium">{city.name}</span>
+                      <span className="mt-1 block text-sm text-white/70">
+                        {location || 'Contexto geográfico indisponível'}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
         {state.status === 'empty' && (
           <EmptyState
             title="Nenhuma cidade encontrada"
@@ -93,7 +142,35 @@ export default function App({
             onSearch={focusSearch}
           />
         )}
-        {state.status === 'error' && <ErrorState message={state.message} onRetry={handleRetry} />}
+        {state.status === 'error' && (
+          <>
+            <ErrorState message={state.message} onRetry={handleRetry} disabled={retryBlocked} />
+            {state.fallback && (
+              <>
+                <p role="status">
+                  Dados desatualizados. Dados referentes a{' '}
+                  {new Intl.DateTimeFormat('pt-BR', {
+                    timeZone: state.fallback.timezone,
+                    dateStyle: 'short',
+                    timeStyle: 'short',
+                  }).format(new Date(state.fallback.current.referenceTime ?? ''))}
+                  .
+                </p>
+                <CurrentWeather
+                  city={state.fallback.city}
+                  current={state.fallback.current}
+                  unit={unit}
+                />
+                <ForecastList
+                  forecast={state.fallback.forecast}
+                  unit={unit}
+                  timezone={state.fallback.timezone}
+                  referenceTime={new Date().toISOString()}
+                />
+              </>
+            )}
+          </>
+        )}
         {state.status === 'success' && (
           <>
             <CurrentWeather city={state.data.city} current={state.data.current} unit={unit} />

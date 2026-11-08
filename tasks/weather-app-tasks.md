@@ -164,10 +164,10 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 ### T-13 — Implementar serviço de geocoding
 - **Tipo:** Data
 - **Descrição:** Consultar Geocoding Open-Meteo e converter resposta para resultados de domínio.
-- **Critérios de aceite:** Consulta vazia/apenas espaços resulta em zero chamadas Fetch; consulta aparada mantém acentos, hífen e apóstrofo; URL codificada contém `count=10`, `language=pt` e `format=json`; respostas vazias viram lista vazia e falhas de rede/HTTP são rejeições tipadas; a chamada encerra em até cinco segundos e 429 não dispara retry automático.
+- **Critérios de aceite:** Consulta vazia/apenas espaços resulta em zero chamadas Fetch; consulta aparada mantém acentos, hífen e apóstrofo; URL codificada contém `count=10`, `language=pt` e `format=json`; respostas vazias viram lista vazia, resultados são limitados aos candidatos válidos recebidos do provedor e a ausência de um nome parcial não é tratada como prova de inexistência da cidade; falhas de rede/HTTP são rejeições tipadas; a chamada encerra em até cinco segundos e 429 não dispara retry automático. A busca complementar para nomes omitidos fica pendente da decisão registrada nas Open Questions da spec.
 - **Dependências:** T-03, T-12
 - **Arquivos prováveis:** `src/services/openMeteo.ts`
-- **Requisitos:** RF1; AC2, AC5, AC32–AC33
+- **Requisitos:** RF1; AC2, AC5, AC32–AC33, AC56
 
 ### T-14 — Implementar serviço de previsão
 - **Tipo:** Data
@@ -204,10 +204,10 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 ### T-18 — Testar serviço de geocoding
 - **Tipo:** Test
 - **Descrição:** Validar URL, parsing e erros do serviço de busca sem rede real.
-- **Critérios de aceite:** Toda chamada usa Fetch mockado; asserts conferem os parâmetros `count=10`, `language=pt`, `format=json`, consulta vazia sem chamada, preservação de acentos/pontuação, resposta sem resultados como lista vazia e erros HTTP/rede rejeitados com o tipo esperado.
+- **Critérios de aceite:** Toda chamada usa Fetch mockado; asserts conferem os parâmetros `count=10`, `language=pt`, `format=json`, consulta vazia sem chamada, preservação de acentos/pontuação, resposta sem resultados como lista vazia, uma resposta que omite uma localidade parcial exibindo apenas os candidatos retornados e erros HTTP/rede rejeitados com o tipo esperado.
 - **Dependências:** T-13
 - **Arquivos prováveis:** `tests/services/geocoding.test.ts`
-- **Requisitos:** RF1; AC2, AC5, AC32–AC33
+- **Requisitos:** RF1; AC2, AC5, AC32–AC33, AC56
 
 ### T-19 — Testar serviço de previsão
 - **Tipo:** Test

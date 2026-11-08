@@ -14,8 +14,9 @@ se o base ficasse "/"?
 
 ```
 Quero validar localmente o build que será publicado no Pages. Gere os comandos
-para buildar com VITE_BASE=/sdd-weather-app/app/ e servir o preview, e explique o
-que verificar (caminhos de assets, ausência de 404).
+para buildar com
+VITE_BASE=/sdd-weather-app-isaac-d-oliveira-05112026/app/ e servir o preview, e
+explique o que verificar (caminhos de assets, ausência de 404).
 ```
 
 ## P11.3 — Entender o workflow de Pages

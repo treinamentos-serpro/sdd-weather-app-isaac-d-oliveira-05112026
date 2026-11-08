@@ -2,6 +2,61 @@
 
 Este plano deriva de [`specs/weather-app-spec.md`](../specs/weather-app-spec.md), que é a fonte da verdade para o comportamento e os limites do produto. Os blocos TypeScript abaixo definem contratos pretendidos, não código final.
 
+## Plano de Implementação Prioritário
+
+Implementar as fases abaixo em ordem. Cada fase deve concluir seus critérios e testes antes da seguinte; a fase operacional é um gate separado e não pode ser considerada concluída apenas porque o código compila. O backlog deve decompor estas fases em tarefas verificáveis sem alterar os critérios da spec.
+
+### Fase 1 — Atualidade e apresentação temporal
+
+- Extrair uma regra pura que valide o timestamp de referência como instante finito, não futuro e com idade máxima de 60 minutos, usando relógio injetável. A normalização local + `utc_offset_seconds` continua independente do fuso do dispositivo.
+- Aplicar a validação antes de classificar uma resposta como clima atual. Uma referência inválida, futura ou antiga resulta em estado de erro/desatualizado, retry e somente cache elegível; campos meteorológicos ausentes com referência atual válida continuam sendo sucesso parcial.
+- Passar `referenceTime`, fuso e `modelRunAt` à apresentação. Mostrar “Dados referentes a HH:mm” e “Idade da execução do modelo: Indisponível” quando não houver metadado confiável; nunca derivar a idade do modelo da referência.
+- **Saída verificável:** testes de limite em 60 minutos, 60 minutos + 1 ms, horário futuro/inválido e fuso distinto; UI identifica referência e idade do modelo em separado.
+- **Rastreabilidade:** RF2/NFR6; AC7–AC9, AC30, AC47–AC48.
+
+### Fase 2 — Busca e seleção explícita
+
+- Separar a busca de geocoding da consulta meteorológica: apresentar até 10 cidades válidas, ordenadas por nome exato, prefixo e ocorrência parcial, preservando a ordem do provedor nos empates.
+- Limitar a busca aos candidatos retornados pelo provedor nesta versão. Teste manual em 2026-11-07: “pinhais” não apresentou “São José dos Pinhais”; nome completo ou consulta mais específica são as alternativas atuais. Não prometer cobertura parcial exaustiva nem adicionar uma segunda fonte sem avaliar cobertura e orçamento de chamadas.
+- Manter consulta aparada, preservando acentos e pontuação no valor enviado. Consulta vazia não chama o serviço e apresenta mensagem acionável.
+- Selecionar automaticamente somente uma correspondência com nome, coordenadas e contexto geográfico completos. Para múltiplos resultados ou contexto incompleto, exigir seleção explícita; nenhuma cidade deve ser consultada antes da seleção.
+- A lista de sugestões deve ser operável por teclado e nomear cidade, região/estado e país. Respostas antigas de busca não podem substituir resultados da consulta vigente.
+- **Saída verificável:** testes de ordenação estável, auto-seleção elegível, homônimos, contexto ausente, consulta vazia, acentos/pontuação e resposta parcial sem candidato esperado; E2E cobre seleção por teclado e escolha explícita. Registrar a cobertura real do geocoder sem tratá-la como exaustiva.
+- **Rastreabilidade:** RF1; AC1–AC5, AC32–AC33, AC56.
+
+### Fase 3 — Preferências, cidade lembrada e cache
+
+- Ler preferências locais no início, usar Celsius quando ausentes/inválidas e restaurar a última cidade sem autenticação. Persistir cidade no momento da seleção, mesmo se o forecast falhar, e persistir unidade ao alterná-la.
+- Reutilizar o armazenamento local existente, validando dados e tratando storage indisponível sem impedir o uso. Não salvar consulta digitada, histórico ou identificadores pessoais.
+- Em falha, procurar cache apenas da cidade selecionada/lembrada; validar `storedAt` de até três horas e timestamp meteorológico válido, não futuro. Exibir fallback como desatualizado e manter a falha/retry visíveis.
+- **Saída verificável:** testes de reload com cidade e Fahrenheit, storage inválido/indisponível, limpeza local e limites exatos do TTL; fallback não aparece para outra cidade ou cache inelegível.
+- **Rastreabilidade:** RF4, RF5, RF8; AC11, AC14–AC16, AC22–AC25.
+
+### Fase 4 — Atualização e concorrência
+
+- Adicionar ação de atualização manual da cidade selecionada e um único temporizador por cidade, contado desde o início da última tentativa.
+- Pausar atualização automática enquanto a página estiver oculta; ao retornar, atualizar imediatamente somente se 15 minutos já tiverem transcorrido.
+- Coalescer atualização manual/automática enquanto houver consulta da mesma cidade. Ao trocar de cidade, cancelar quando possível e descartar respostas tardias que não correspondam à seleção vigente.
+- Manter o bloqueio de retry HTTP 429 até `Retry-After`, ou 60 segundos quando ausente/inválido, sem retry automático.
+- **Saída verificável:** testes com relógio controlado para 15 minutos, visibilidade, chamada manual, concorrência, troca de cidade e bloqueio 429.
+- **Rastreabilidade:** RF7–RF8; AC19–AC25, AC34–AC38, AC52.
+
+### Fase 5 — Cobertura responsiva e acessibilidade
+
+- Expandir os testes de layout para busca, resultados, clima, previsão, loading e erro nas larguras 320, 375, 768, 1024 e 1440 CSS px; verificar rolagem horizontal, corte de conteúdo e acesso por teclado.
+- Manter `aria-busy`, mensagens de estado semântico, foco condicional após busca/retry e estados visuais inativos para controles desabilitados.
+- Completar avaliação manual com teclado e tecnologias assistivas nas combinações e navegadores definidos em NFR4/NFR7; registrar ambiente e evidências, pois Playwright não substitui essa avaliação.
+- **Saída verificável:** E2E cobre as viewports/estados indicados; checklist manual de acessibilidade tem evidências por combinação testada.
+- **Rastreabilidade:** NFR1, NFR4, NFR7; AC42, AC49.
+
+### Gate operacional — Antes de piloto/publicação
+
+- Manter separado do aceite técnico: registrar responsável e execução do contador compartilhado de chamadas para o piloto, pausando novas sessões ao atingir 1.000 chamadas.
+- Antes de publicação pública, registrar estimativa e proteção para o limite diário do provedor ou contrato de plano/licença compatível; anexar as aprovações de Produto/Jurídico e Privacidade, atribuição, baseline de segurança e consentimento aplicável.
+- Definir e registrar monitoramento sintético de disponibilidade e avaliação de LCP conforme os limiares amostrais da spec. A coleta real de métricas permanece desligada até aprovação; quando autorizada, aplicar minimização e retenção máxima de 90 dias.
+- Definir protocolo/recrutamento da validação AC46 e registrar resultados dos 30 participantes. Não declarar a meta aprovada antes de obter a amostra.
+- **Saída verificável:** evidências documentadas para AC39–AC46 e AC50–AC55. Pendências bloqueiam a publicação conforme NFR8/NFR9; não são resolvidas por testes unitários ou E2E.
+
 ## Architecture
 
 Aplicação cliente React, sem backend próprio na primeira versão. As dependências seguem uma direção: apresentação → orquestração → serviços → APIs/armazenamento. Funções puras em `lib/` podem ser chamadas pelas camadas superiores, mas não fazem I/O nem dependem de React. Os tipos compartilhados definem contratos entre as camadas.
@@ -24,7 +79,7 @@ Open-Meteo / localStorage         lib (regras e formatação)
 - **`lib/`** contém funções determinísticas sem efeitos, como conversão/arredondamento, atualidade, códigos WMO e formatação por locale/fuso. Recebe entradas explícitas e retorna resultados, sem ler relógio, DOM ou storage implicitamente.
 - **`types/`** reúne contratos compartilhados, sem lógica de apresentação ou I/O.
 - `App.tsx` compõe componentes e hook; `main.tsx` inicializa React. Não criar camada de contexto/global store: o estado desta tela cabe no hook.
-- **Integração incremental atual:** `main.tsx` inicia em `idle` e injeta `getWeatherByName`, que encadeia geocoding e forecast somente para correspondência única com contexto completo. Resultados ambíguos são recusados com mensagem explícita, não selecionados arbitrariamente; isso não substitui a seleção explícita planejada. O mock padrão de `App` permanece disponível em demonstrações/testes isolados. O setup de testes carrega os matchers e cleanup do Testing Library; E2E fixa o relógio da fixture e intercepta a rede.
+- **Integração incremental atual:** `main.tsx` inicia em `idle` e injeta `getWeatherByName`; uma correspondência única com contexto completo carrega a previsão, e resultados múltiplos ou sem contexto suficiente exigem seleção explícita antes do forecast. A consulta usa os candidatos retornados pelo geocoder (até 10), sem fallback para nomes que a fonte omita. O mock padrão de `App` permanece disponível em demonstrações/testes isolados. O setup de testes carrega os matchers e cleanup do Testing Library; E2E fixa o relógio da fixture e intercepta a rede.
 - O endpoint de previsão retorna clima atual e previsão diária na mesma chamada, reduzindo volume de chamadas e mantendo seus dados associados à mesma resposta.
 - A aplicação funciona sem serviço remoto para persistir usuários ou dados. Não solicitar geolocalização nem enviar telemetria de uso.
 
@@ -268,15 +323,13 @@ São contratos conceituais, mantidos no hook local sem biblioteca de estado glob
 
 ### Incremento no modo de demonstração
 
-O fluxo atual continua usando `getMockWeather`, sem integrar a seleção de cidades à API real.
-O hook `useWeather` concentra os estados da consulta por nome, encerra o carregamento
-em cinco segundos e repete somente a consulta que falhou quando a pessoa aciona
-“Tentar novamente”, mesmo após editar o campo. Uma resposta tardia não substitui
-o resultado da nova tentativa; requisições HTTP reais também são abortadas após
-cinco segundos pelo serviço. O loader de demonstração não oferece cancelamento.
-As mensagens distinguem timeout, falha de conexão, HTTP e JSON inválido.
-Cache, seleção de cidades, atualização e bloqueio por `Retry-After` continuam no
-escopo das tarefas de integração, não deste incremento.
+O bootstrap usa `getWeatherByName` para correspondências únicas com contexto
+completo; o mock permanece disponível para demonstrações e testes. O hook aplica
+um prazo de cinco segundos ao fluxo inteiro e propaga cancelamento ao serviço,
+descartando respostas tardias. Falhas podem exibir cache elegível da mesma cidade
+e HTTP 429 bloqueia retry até `Retry-After` ou por 60 segundos. A seleção
+explícita de cidades ambíguas e a atualização periódica continuam pendentes.
+O loader de demonstração não oferece cancelamento.
 
 Validação offline: Vitest simula `fetch` rejeitando com `TypeError`, verifica
 mensagem de conexão e recuperação via retry; timers falsos verificam o limite

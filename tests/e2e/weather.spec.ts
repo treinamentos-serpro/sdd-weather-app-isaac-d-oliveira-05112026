@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 const geocodingResponse = {
   results: [
@@ -81,6 +81,53 @@ test('mostra estado sem resultados quando a busca não encontra a cidade', async
   await expect(page.getByRole('heading', { name: 'Nenhuma cidade encontrada' })).toBeVisible();
 });
 
+test('permite resolver cidades ambíguas antes de carregar a previsão', async ({ page }) => {
+  await page.route('**/geocoding-api.open-meteo.com/v1/search**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        results: [
+          {
+            name: 'Pinhais',
+            admin1: 'Paraná',
+            country: 'Brasil',
+            latitude: -25.44,
+            longitude: -49.19,
+          },
+          {
+            name: 'Pinhais',
+            admin1: 'Santa Catarina',
+            country: 'Brasil',
+            latitude: -26.1,
+            longitude: -49.2,
+          },
+        ],
+      }),
+    }),
+  );
+  let forecastRequests = 0;
+  await page.route('**/api.open-meteo.com/v1/forecast**', async (route) => {
+    forecastRequests += 1;
+    await route.fulfill({ json: forecastResponse });
+  });
+
+  await page.goto('/');
+  await page.getByRole('searchbox', { name: 'Cidade' }).fill('Pinhais');
+  await page.getByRole('button', { name: 'Buscar', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Selecione uma cidade' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pinhais, Paraná, Brasil' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pinhais, Santa Catarina, Brasil' })).toBeVisible();
+  expect(forecastRequests).toBe(0);
+
+  await page.getByRole('button', { name: 'Pinhais, Paraná, Brasil' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Pinhais' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Previsão de 5 dias' })).toBeVisible();
+  expect(forecastRequests).toBe(1);
+});
+
 test('renderiza clima e previsão no viewport mobile de 375 × 812', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await mockOpenMeteo(page);
@@ -126,6 +173,36 @@ test('sinaliza loading e permite recuperar uma falha por retry', async ({ page }
   await expect(page.getByRole('heading', { name: 'São Paulo' })).toBeVisible();
   await expect(page.getByRole('main')).toBeFocused();
   expect(attempts).toBe(2);
+});
+
+test('mantém cache da cidade e bloqueia retry durante limite do provedor', async ({ page }) => {
+  await mockOpenMeteo(page);
+  let attempts = 0;
+  await page.route('**/api.open-meteo.com/v1/forecast**', async (route) => {
+    attempts += 1;
+    if (attempts === 1) {
+      await route.fulfill({ json: forecastResponse });
+    } else {
+      await route.fulfill({
+        status: 429,
+        headers: { 'Retry-After': '1', 'Access-Control-Expose-Headers': 'Retry-After' },
+      });
+    }
+  });
+  await page.goto('/');
+  await page.getByRole('searchbox', { name: 'Cidade' }).fill('São Paulo');
+  await page.getByRole('button', { name: 'Buscar', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'São Paulo' })).toBeVisible();
+  await page.getByRole('button', { name: 'Buscar', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('muitas consultas');
+  await expect(page.getByRole('button', { name: 'Tentar novamente' })).toBeDisabled();
+  await expect(page.getByText(/Dados desatualizados/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'São Paulo' })).toBeVisible();
+  expect(attempts).toBe(2);
+  await page.clock.setFixedTime(new Date('2026-11-06T13:00:02Z'));
+  await expect(page.getByRole('button', { name: 'Tentar novamente' })).toBeEnabled({
+    timeout: 5000,
+  });
 });
 
 for (const width of [320, 375, 768, 1024, 1440]) {

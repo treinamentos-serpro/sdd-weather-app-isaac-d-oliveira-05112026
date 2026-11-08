@@ -23,7 +23,7 @@ Cada requisito funcional referencia ao menos um critério de aceite na seção *
 
 | ID | Requisito |
 | --- | --- |
-| RF1 | A aplicação deve permitir buscar cidades por nome completo ou parcial e apresentar sugestões durante a digitação. Deve ordenar resultados por correspondência exata do nome da cidade, depois por prefixo e então por ocorrência parcial; resultados empatados mantêm a ordem recebida do provedor. Deve aceitar variantes comuns/localizadas quando suportadas pela fonte e identificar cada resultado por cidade, região/estado e país. Um resultado só pode ser selecionado se tiver nome e coordenadas válidas; deve selecionar automaticamente apenas uma correspondência única com contexto geográfico completo e, nos demais casos, exigir escolha explícita. Sem resultados, deve informar que a cidade não foi encontrada e solicitar nova consulta. Deve remover espaços no início e no fim da consulta; consultas vazias não devem ser enviadas. Acentos e pontuação válida em nomes de cidades devem ser preservados na busca. |
+| RF1 | A aplicação deve permitir buscar cidades por nome completo ou parcial e apresentar sugestões durante a digitação. Deve ordenar resultados por correspondência exata do nome da cidade, depois por prefixo e então por ocorrência parcial; resultados empatados mantêm a ordem recebida do provedor. A ordenação parcial ocorre somente entre os candidatos retornados pela fonte e não garante cobertura exaustiva de todos os nomes que contenham a consulta. Deve aceitar variantes comuns/localizadas quando suportadas pela fonte e identificar cada resultado por cidade, região/estado e país. Um resultado só pode ser selecionado se tiver nome e coordenadas válidas; deve selecionar automaticamente apenas uma correspondência única com contexto geográfico completo e, nos demais casos, exigir escolha explícita. Sem candidatos retornados, deve informar que a busca não retornou cidades e solicitar nova consulta, sem afirmar que a localidade não existe. Deve remover espaços no início e no fim da consulta; consultas vazias não devem ser enviadas. Acentos e pontuação válida em nomes de cidades devem ser preservados na busca. |
 | RF2 | Para a cidade selecionada, a aplicação deve exibir temperatura, condição do tempo, sensação térmica, umidade, vento e precipitação. A condição deve ser apresentada em pt-BR; temperatura e sensação térmica usam a unidade selecionada, umidade usa %, vento usa km/h e precipitação usa mm. Todas as temperaturas são exibidas em graus inteiros, arredondando para o inteiro mais próximo e, em empate, afastando de zero; converter para a unidade selecionada antes de arredondar. Deve mostrar “Dados referentes a HH:mm” no fuso local da cidade, sem apresentar esse horário como observação de estação ou publicação do modelo. O horário de referência deve ser um instante não futuro e ter no máximo 60 minutos de idade no momento em que os dados são avaliados para exibição, para que sejam apresentados como atuais. A idade da execução do modelo deve ser apresentada separadamente somente quando houver metadado confiável; se ausente ou inválido, deve ser identificada como “Indisponível” e nunca inferida a partir do horário de referência. Se o horário de referência for futuro, inválido ou tiver mais de 60 minutos, a aplicação deve indicar que os dados estão desatualizados ou indisponíveis e oferecer nova tentativa; dados em cache podem ser exibidos somente conforme RF8. Se alguns campos estiverem ausentes, deve identificá-los como “Indisponível”, sem substituí-los por zero. |
 | RF3 | A aplicação deve apresentar a previsão diária de cinco dias: o dia atual no fuso local da cidade e os quatro dias seguintes. Cada dia deve incluir condição do tempo e temperaturas mínima/máxima, formatadas conforme a precisão definida em RF2. Se a resposta estiver incompleta, deve mostrar os dias e valores disponíveis, identificar os campos ausentes como “Indisponível” e sinalizar que a previsão está incompleta, sem inventar dados. |
 | RF4 | A aplicação deve permitir alternar entre Celsius e Fahrenheit para temperatura. Celsius é o padrão. A preferência deve ser mantida localmente entre visitas no mesmo navegador; vento permanece em km/h e precipitação em mm, independentemente da unidade escolhida ou do país. |
@@ -56,8 +56,8 @@ Cada requisito funcional referencia ao menos um critério de aceite na seção *
 
 | User Story | Requisitos funcionais | Critérios de aceite | Requisitos não funcionais relevantes |
 | --- | --- | --- | --- |
-| US1 — Consulta da rotina | RF1, RF2 | AC1–AC3, AC5–AC9, AC29–AC30, AC32–AC33, AC47–AC48 | NFR1, NFR2, NFR3, NFR4, NFR5, NFR6, NFR7 |
-| US2 — Cidade correta | RF1 | AC1–AC5, AC32–AC33 | NFR1, NFR4, NFR7 |
+| US1 — Consulta da rotina | RF1, RF2 | AC1–AC3, AC5–AC9, AC29–AC30, AC32–AC33, AC47–AC48, AC56 | NFR1, NFR2, NFR3, NFR4, NFR5, NFR6, NFR7 |
+| US2 — Cidade correta | RF1 | AC1–AC5, AC32–AC33, AC56 | NFR1, NFR4, NFR7 |
 | US3 — Planejamento de viagem | RF3, RF9 | AC10, AC26–AC28, AC31 | NFR1, NFR2, NFR3, NFR4, NFR5, NFR7 |
 | US4 — Unidade de temperatura | RF4 | AC11–AC14, AC53 | NFR1, NFR4, NFR7, NFR8 |
 | US5 — Consulta recorrente | RF4, RF5 | AC11–AC16 | NFR1, NFR4, NFR7, NFR8 |
@@ -105,6 +105,11 @@ Cada cenário usa os termos **Dado**, **Quando** e **Então** (Given/When/Then).
 	- **Dado:** a consulta contém acentos ou pontuação válida em nomes de cidades, como hífen ou apóstrofo.
 	- **Quando:** a pessoa iniciar a busca.
 	- **Então:** a aplicação preserva esses caracteres na consulta e apresenta os resultados correspondentes retornados pelo provedor, sem removê-los ou substituí-los.
+
+- **AC56**
+	- **Dado:** uma consulta parcial pode corresponder a uma localidade que não foi incluída entre os candidatos retornados pelo geocoder.
+	- **Quando:** a aplicação apresentar os resultados da busca.
+	- **Então:** mostra somente candidatos válidos recebidos do provedor, não afirma que a lista é exaustiva e permite uma nova consulta com o nome completo ou um termo mais específico. A ausência de um candidato não significa que a localidade não exista.
 
 ### RF2 — Clima atual
 
@@ -391,7 +396,7 @@ Cada cenário usa os termos **Dado**, **Quando** e **Então** (Given/When/Then).
 
 ## Edge Cases
 
-- Busca com nome parcial, variante localizada, acentos ou grafia alternativa não suportada pela fonte.
+- Busca com nome parcial, variante localizada, acentos ou grafia alternativa não suportada pela fonte; o geocoder pode não retornar todas as localidades cujo nome contém o termo consultado.
 - Vários locais com o mesmo nome, resultados sem região/estado ou país, e busca sem resultados.
 - Entrada vazia, somente espaços ou consulta alterada enquanto sugestões anteriores ainda estão visíveis.
 - Falha de rede, timeout, indisponibilidade, resposta incompleta ou limite de requisições do provedor.
@@ -409,7 +414,7 @@ Cada cenário usa os termos **Dado**, **Quando** e **Então** (Given/When/Then).
 - O acesso a novos dados requer conexão à internet. Não haverá modo offline completo; cache é somente fallback em falha e por até três horas.
 - A primeira publicação está definida como protótipo não comercial; Produto/Jurídico deve confirmar antes da publicação que o uso planejado se enquadra nos termos do Open-Meteo.
 - A cobertura geográfica desejada é global, mas disponibilidade e qualidade dos dados variam e não estão garantidas para todos os locais.
-- Sugestões e variantes de busca dependem dos campos e capacidades efetivamente disponibilizados pelo provedor.
+- Sugestões, variantes e cobertura de busca dependem dos candidatos e capacidades efetivamente disponibilizados pelo provedor; a primeira versão não faz busca complementar nem promete correspondência parcial exaustiva.
 - Personas, meta de 90% em até 30 segundos e demais metas de experiência são hipóteses para validação com usuários, não garantias de resultado.
 - A interface fica em pt-BR mesmo quando a cidade consultada está em outro país; as unidades de vento e precipitação continuam fixas em km/h e mm.
 - A última cidade e a unidade são armazenadas somente no navegador e não são sincronizadas entre dispositivos.
@@ -445,3 +450,4 @@ Cada cenário usa os termos **Dado**, **Quando** e **Então** (Given/When/Then).
 
 1. Quais critérios de recrutamento e protocolo de teste serão usados para selecionar 30 participantes representativos da persona prioritária e medir a tarefa da AC46?
 2. Quais metas numéricas serão adotadas para os indicadores separados de geocoding, clima atual e previsão após a revisão da linha de base de 30 dias?
+3. A busca deve ganhar uma estratégia complementar quando o geocoder omitir nomes que contêm o termo parcial, como “São José dos Pinhais” para a consulta “Pinhais”? Avaliar cobertura, custo de chamadas e fonte alternativa antes de prometer esse comportamento.

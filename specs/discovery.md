@@ -68,6 +68,12 @@ Consulta pontual aos endpoints públicos do Open-Meteo, sem chave de API, realiz
 - **Licença e operação:** a [página de preços](https://open-meteo.com/en/pricing) informa que a API gratuita é destinada a uso não comercial, tem limite de 10.000 chamadas por dia e não oferece garantia de uptime. O uso comercial requer licença comercial, endpoint do cliente e chave. A licença de dados CC BY 4.0 exige atribuição apropriada.
 - **Pendência para a meta de uma hora:** o limite escolhido se refere à idade do horário de referência do valor, não à idade da execução do modelo. Ainda é necessário validar a semântica exata do campo temporal e definir o comportamento para modelos com ciclos de três ou seis horas.
 
+## Teste Manual da Busca
+
+Em 2026-11-07, uma consulta por “pinhais” na interface apresentou opções de cidades para desambiguação. A pessoa selecionou “Pinhais, Paraná, Brasil” e recebeu a previsão, mas “São José dos Pinhais” não apareceu entre as opções apresentadas. A conversão da temperatura para Fahrenheit também foi verificada manualmente.
+
+Essa observação registra uma lacuna de cobertura da busca parcial do provedor; não demonstra se o nome foi omitido pelo geocoder ou limitado pela resposta da consulta. A primeira versão não faz busca complementar e não garante que todo nome contendo o termo digitado seja retornado. Pesquisar o nome completo ou refinar a consulta é a alternativa disponível.
+
 ## Riscos
 
 As avaliações de probabilidade e impacto são iniciais e devem ser revistas após as decisões de discovery. As mitigações são propostas, não decisões aprovadas.

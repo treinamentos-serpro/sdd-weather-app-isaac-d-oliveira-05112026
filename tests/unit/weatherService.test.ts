@@ -77,6 +77,8 @@ describe('getWeather', () => {
 
       const weather = await getWeatherByName('São Paulo');
 
+      if (!weather || Array.isArray(weather))
+        throw new Error('Era esperado o retorno da previsão.');
       expect(weather?.city.name).toBe('São Paulo');
       expect(weather?.current.temperatureC).toBe(18.4);
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -95,14 +97,32 @@ describe('getWeather', () => {
       [city, { ...city, name: 'Outra cidade' }],
       [{ ...city, admin1: null }],
       [{ ...city, country: ' ' }],
-    ])('recusa resultados ambíguos ou incompletos: %j', async (...results) => {
+    ])('retorna opções quando há ambiguidade ou contexto incompleto: %j', async (...results) => {
       const fetchMock = vi.fn().mockResolvedValue(Response.json({ results }));
       vi.stubGlobal('fetch', fetchMock);
 
-      await expect(getWeatherByName('cidade')).rejects.toMatchObject({
-        name: 'WeatherServiceError',
-        message: expect.stringContaining('contexto único'),
-      });
+      await expect(getWeatherByName('cidade')).resolves.toMatchObject(
+        results.map((result) => ({ name: result.name })),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('ordena correspondência exata antes de prefixo e parcial, mantendo empates estáveis', async () => {
+      const exact = { ...city, name: 'Pinhais' };
+      const prefix = { ...city, id: 'prefix', name: 'Pinhais do Sul' };
+      const partial = { ...city, id: 'partial', name: 'São Pinhais' };
+      const otherExact = { ...city, id: 'other-exact', name: 'Pinhais' };
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ results: [partial, exact, prefix, otherExact] }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(getWeatherByName('Pinhais')).resolves.toMatchObject([
+        { name: exact.name },
+        { name: otherExact.name },
+        { name: prefix.name },
+        { name: partial.name },
+      ]);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });

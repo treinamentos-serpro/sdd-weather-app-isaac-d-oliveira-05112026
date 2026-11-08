@@ -22,7 +22,7 @@ o `base` do Vite muda em produção.
 
 ## Entrada
 
-- App aprovado no PR (Modules 05–09)
+- CI concluído com sucesso para um commit na `main`
 - Workflow [`.github/workflows/pages.yml`](../../.github/workflows/pages.yml)
 - `vite.config.ts` com `base` configurável via `VITE_BASE`
 
@@ -32,3 +32,32 @@ o `base` do Vite muda em produção.
 - Site do workshop publicado na raiz
 - App publicado em `/<repo>/app/`
 - URL pública funcionando
+
+## Fluxo de publicação
+
+O push na `main` inicia o workflow `CI`. Após sua conclusão bem-sucedida, o
+workflow de Pages faz checkout do mesmo commit, compila o app com
+`VITE_BASE=/<repo>/app/` e monta o artefato com `docs/` na raiz, `dist/` em
+`app/` e `workshop/` em `workshop/`. O arquivo `docs/.nojekyll` é mantido na
+raiz publicada. O deploy também pode ser iniciado manualmente por
+`workflow_dispatch`.
+
+## Validação local
+
+Use o nome do repositório no caminho-base do Vite:
+
+```bash
+export VITE_BASE=/sdd-weather-app-isaac-d-oliveira-05112026/app/
+pnpm build
+pnpm preview --host 127.0.0.1
+```
+
+Abra `http://127.0.0.1:4173/sdd-weather-app-isaac-d-oliveira-05112026/app/` e
+confirme que a tela e os assets carregam. Esse preview valida o app; a montagem
+completa do site é verificada no workflow de Pages.
+
+## URLs publicadas
+
+- Workshop: `https://<owner>.github.io/<repo>/`
+- App: `https://<owner>.github.io/<repo>/app/`
+- Markdown deste módulo: `https://<owner>.github.io/<repo>/workshop/module-11-delivery/README.md`

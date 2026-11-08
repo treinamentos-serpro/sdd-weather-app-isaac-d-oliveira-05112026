@@ -2,7 +2,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import useWeather from '../../src/hooks/useWeather';
 import { mockWeatherData } from '../../src/mocks/weather';
-import type { WeatherData } from '../../src/types/weather';
+import type { City, WeatherData } from '../../src/types/weather';
 
 afterEach(() => {
   cleanup();
@@ -23,6 +23,41 @@ describe('useWeather', () => {
 
     expect(loadWeather).not.toHaveBeenCalled();
     expect(result.current.state.status).toBe('idle');
+  });
+
+  it('mantém a cidade escolhida para retry do forecast sem repetir a busca ambígua', async () => {
+    const city: City = {
+      ...mockWeatherData.city,
+      id: 'pinhais-parana',
+      name: 'Pinhais',
+      admin1: 'Paraná',
+    };
+    const loadWeather = vi.fn().mockResolvedValue([city, { ...city, id: 'pinhais-other' }]);
+    const loadCityWeather = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Falha de rede'))
+      .mockResolvedValue({ ...mockWeatherData, city });
+    const { result } = renderHook(() =>
+      useWeather({ initialState: { status: 'idle' }, loadWeather, loadCityWeather }),
+    );
+
+    await act(async () => {
+      await result.current.search('Pinhais');
+    });
+    expect(result.current.state.status).toBe('choices');
+    await act(async () => {
+      await result.current.selectCity(city);
+    });
+    expect(result.current.state.status).toBe('error');
+
+    await act(async () => {
+      await result.current.retry();
+    });
+
+    expect(loadWeather).toHaveBeenCalledTimes(1);
+    expect(loadCityWeather).toHaveBeenCalledTimes(2);
+    expect(loadCityWeather).toHaveBeenLastCalledWith(city, expect.any(AbortSignal));
+    expect(result.current.state).toMatchObject({ status: 'success', data: { city } });
   });
 
   it('encerra loading no prazo, permite retry e ignora resposta tardia da tentativa anterior', async () => {
@@ -69,7 +104,11 @@ describe('useWeather', () => {
       void result.current.retry();
     });
     expect(loadWeather).toHaveBeenCalledTimes(2);
-    expect(loadWeather).toHaveBeenLastCalledWith('São Paulo');
+    expect(loadWeather).toHaveBeenLastCalledWith(
+      'São Paulo',
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
     await act(async () => {
       resolveFirst(null);
     });
@@ -78,6 +117,9 @@ describe('useWeather', () => {
       resolveRetry(mockWeatherData);
     });
     expect(result.current.state).toEqual({ status: 'success', data: mockWeatherData });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(vi.getTimerCount()).toBe(0);
   });
 });
