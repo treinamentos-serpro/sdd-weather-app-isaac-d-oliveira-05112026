@@ -1,5 +1,5 @@
-import type { City, WeatherData } from '../types/weather';
 import { isCurrentReferenceTime } from '../lib/weatherTime';
+import type { City, WeatherData } from '../types/weather';
 
 export const WEATHER_TIMEOUT_MS = 5000;
 
