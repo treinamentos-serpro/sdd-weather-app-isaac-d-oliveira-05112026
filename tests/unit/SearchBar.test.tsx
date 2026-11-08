@@ -37,6 +37,18 @@ describe('SearchBar', () => {
     expect(onSearch).toHaveBeenCalledExactlyOnceWith("São João d'Aliança");
   });
 
+  it('notifica edições com consulta aparada sem submeter automaticamente', async () => {
+    const user = userEvent.setup();
+    const onSearch = vi.fn();
+    const onQueryChange = vi.fn();
+    render(<SearchBar onSearch={onSearch} onQueryChange={onQueryChange} />);
+
+    await user.type(screen.getByLabelText('Cidade'), '  São José  ');
+
+    expect(onQueryChange).toHaveBeenLastCalledWith('São José');
+    expect(onSearch).not.toHaveBeenCalled();
+  });
+
   it('permite focar e enviar a busca por teclado', async () => {
     const user = userEvent.setup();
     const onSearch = vi.fn();

@@ -78,7 +78,7 @@ describe('useWeather', () => {
             resolveRetry = resolve;
           }),
       );
-    const { result } = renderHook(() =>
+    const { result, unmount } = renderHook(() =>
       useWeather({ initialState: { status: 'idle' }, loadWeather }),
     );
 
@@ -120,6 +120,112 @@ describe('useWeather', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('debounce busca o texto mais recente somente após 300 ms', async () => {
+    vi.useFakeTimers();
+    const loadWeather = vi.fn().mockResolvedValue([mockWeatherData.city]);
+    const { result } = renderHook(() =>
+      useWeather({ initialState: { status: 'idle' }, loadWeather }),
+    );
+
+    act(() => result.current.scheduleSearch('São'));
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+    act(() => result.current.scheduleSearch('São Paulo'));
+    await act(async () => vi.advanceTimersByTimeAsync(299));
+    expect(loadWeather).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+
+    expect(loadWeather).toHaveBeenCalledExactlyOnceWith(
+      'São Paulo',
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
+    expect(result.current.state.status).toBe('choices');
+  });
+
+  it('permite repetir a mesma busca depois de limpar o campo', async () => {
+    vi.useFakeTimers();
+    const loadWeather = vi.fn().mockResolvedValue([mockWeatherData.city]);
+    const { result } = renderHook(() =>
+      useWeather({ initialState: { status: 'idle' }, loadWeather }),
+    );
+
+    act(() => result.current.scheduleSearch('São Paulo'));
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    expect(loadWeather).toHaveBeenCalledTimes(1);
+
+    act(() => result.current.scheduleSearch(''));
+    act(() => result.current.scheduleSearch('São Paulo'));
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+
+    expect(loadWeather).toHaveBeenCalledTimes(2);
+  });
+
+  it('atualiza a cada 15 minutos e pausa enquanto o documento está oculto', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-08T12:00:00Z'));
+    const loadCityWeather = vi.fn().mockResolvedValue(mockWeatherData);
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    const { unmount } = renderHook(() =>
+      useWeather({
+        initialState: { status: 'idle' },
+        initialCity: mockWeatherData.city,
+        loadWeather: vi.fn(),
+        loadCityWeather,
+      }),
+    );
+
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(loadCityWeather).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTimeAsync(15 * 60 * 1000));
+    expect(loadCityWeather).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(loadCityWeather).toHaveBeenCalledTimes(2);
+
+    unmount();
+    if (originalVisibility) {
+      Object.defineProperty(document, 'visibilityState', originalVisibility);
+    } else {
+      Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+
+  it('coalesce refresh manual com a consulta da mesma cidade em andamento', async () => {
+    let resolveWeather!: (data: WeatherData) => void;
+    const loadCityWeather = vi.fn(
+      () => new Promise<WeatherData>((resolve) => (resolveWeather = resolve)),
+    );
+    const { result } = renderHook(() =>
+      useWeather({
+        initialState: { status: 'idle' },
+        initialCity: mockWeatherData.city,
+        loadWeather: vi.fn(),
+        loadCityWeather,
+      }),
+    );
+
+    expect(loadCityWeather).toHaveBeenCalledTimes(1);
+    let first!: Promise<void> | undefined;
+    let second!: Promise<void> | undefined;
+    act(() => {
+      first = result.current.refresh();
+      second = result.current.refresh();
+    });
+    expect(second).toBe(first);
+    expect(loadCityWeather).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveWeather(mockWeatherData);
+      await first;
+    });
   });
 });

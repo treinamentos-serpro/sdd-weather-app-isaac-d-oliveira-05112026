@@ -8,7 +8,12 @@ import {
   searchCities,
   WeatherServiceError,
 } from '../../src/services/weatherService';
-import { readWeatherCache, saveWeatherCache } from '../../src/services/weatherStorage';
+import {
+  readWeatherCache,
+  readWeatherPreferences,
+  saveWeatherCache,
+  updateWeatherPreferences,
+} from '../../src/services/weatherStorage';
 
 afterEach(() => {
   cleanup();
@@ -254,5 +259,37 @@ describe('cache de fallback', () => {
       await result.current.search('São Paulo');
     });
     expect(result.current.state).toMatchObject({ status: 'error', fallback: mockWeatherData });
+  });
+});
+
+describe('preferências locais', () => {
+  it('usa Celsius e nenhuma cidade quando não há dados salvos', () => {
+    expect(readWeatherPreferences()).toEqual({ lastCity: null, temperatureUnit: 'celsius' });
+  });
+
+  it('persiste cidade e unidade e valida valores inválidos', () => {
+    updateWeatherPreferences({ lastCity: mockWeatherData.city, temperatureUnit: 'fahrenheit' });
+    expect(readWeatherPreferences()).toEqual({
+      lastCity: mockWeatherData.city,
+      temperatureUnit: 'fahrenheit',
+    });
+
+    localStorage.setItem(
+      'weather-app-preferences',
+      JSON.stringify({ lastCity: { ...mockWeatherData.city, latitude: 91 }, temperatureUnit: 'kelvin' }),
+    );
+    expect(readWeatherPreferences()).toEqual({ lastCity: null, temperatureUnit: 'celsius' });
+  });
+
+  it('não impede o uso quando localStorage está indisponível ou corrompido', () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    localStorage.setItem('weather-app-preferences', '{');
+    expect(readWeatherPreferences()).toEqual({ lastCity: null, temperatureUnit: 'celsius' });
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('Storage disabled');
+    });
+    expect(() => updateWeatherPreferences({ temperatureUnit: 'fahrenheit' })).not.toThrow();
+    expect(warning).toHaveBeenCalled();
   });
 });

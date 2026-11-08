@@ -56,7 +56,14 @@ test.beforeEach(async ({ page }) => {
 test('busca uma cidade, mostra a previsão e converte a temperatura para Fahrenheit', async ({
   page,
 }) => {
-  await mockOpenMeteo(page);
+  let forecastRequests = 0;
+  await page.route('**/geocoding-api.open-meteo.com/v1/search**', (route) =>
+    route.fulfill({ json: geocodingResponse }),
+  );
+  await page.route('**/api.open-meteo.com/v1/forecast**', async (route) => {
+    forecastRequests += 1;
+    await route.fulfill({ json: forecastResponse });
+  });
 
   await page.goto('/');
   await page.getByRole('searchbox', { name: 'Cidade' }).fill('São Paulo');
@@ -70,6 +77,10 @@ test('busca uma cidade, mostra a previsão e converte a temperatura para Fahrenh
   await expect(page.getByText(/Temperatura:\s*32 °F/)).toBeVisible();
   await expect(page.getByText('32 °F', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '°F' })).toBeFocused();
+  expect(forecastRequests).toBe(1);
+  await page.getByRole('button', { name: 'Atualizar clima' }).click();
+  await expect(page.getByRole('main')).toHaveAttribute('aria-busy', 'false');
+  expect(forecastRequests).toBe(2);
 });
 
 test('mostra estado sem resultados quando a busca não encontra a cidade', async ({ page }) => {
@@ -114,11 +125,12 @@ test('permite resolver cidades ambíguas antes de carregar a previsão', async (
 
   await page.goto('/');
   await page.getByRole('searchbox', { name: 'Cidade' }).fill('Pinhais');
-  await page.getByRole('button', { name: 'Buscar', exact: true }).click();
-
   await expect(page.getByRole('heading', { name: 'Selecione uma cidade' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Pinhais, Paraná, Brasil' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Pinhais, Santa Catarina, Brasil' })).toBeVisible();
+  expect(forecastRequests).toBe(0);
+
+  await page.getByRole('button', { name: 'Buscar', exact: true }).click();
   expect(forecastRequests).toBe(0);
 
   await page.getByRole('button', { name: 'Pinhais, Paraná, Brasil' }).click();
@@ -163,7 +175,7 @@ test('sinaliza loading e permite recuperar uma falha por retry', async ({ page }
   await page.getByRole('searchbox', { name: 'Cidade' }).press('Enter');
   await expect(page.getByRole('main')).toHaveAttribute('aria-busy', 'true');
   await expect(page.getByRole('status')).toContainText('Carregando');
-  await expect(page.getByRole('button', { name: 'Buscar', exact: true })).toBeDisabled();
+  await expect(page.getByRole('searchbox', { name: 'Cidade' })).toBeEnabled();
   releaseResponse();
 
   await expect(page.getByRole('alert')).toContainText('Não foi possível consultar');
@@ -191,7 +203,7 @@ test('mantém cache da cidade e bloqueia retry durante limite do provedor', asyn
   });
   await page.goto('/');
   await page.getByRole('searchbox', { name: 'Cidade' }).fill('São Paulo');
-  await page.getByRole('button', { name: 'Buscar', exact: true }).click();
+  await page.getByRole('button', { name: 'Atualizar clima' }).click();
   await expect(page.getByRole('heading', { name: 'São Paulo' })).toBeVisible();
   await page.getByRole('button', { name: 'Buscar', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('muitas consultas');

@@ -1,4 +1,5 @@
 import type { City, WeatherData } from '../types/weather';
+import { isCurrentReferenceTime } from '../lib/weatherTime';
 
 export const WEATHER_TIMEOUT_MS = 5000;
 
@@ -40,6 +41,12 @@ const currentFields =
 const dailyFields = 'weather_code,temperature_2m_min,temperature_2m_max';
 
 export type WeatherLookupResult = WeatherData | City[] | null;
+type Clock = number | (() => number);
+
+function createRequestSignal(signal?: AbortSignal): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(WEATHER_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -129,7 +136,7 @@ export async function searchCities(name: string, signal?: AbortSignal): Promise<
 
   try {
     const response = await fetch(url, {
-      signal: signal ?? AbortSignal.timeout(WEATHER_TIMEOUT_MS),
+      signal: createRequestSignal(signal),
     });
     if (!response.ok) {
       throw httpError(
@@ -142,7 +149,7 @@ export async function searchCities(name: string, signal?: AbortSignal): Promise<
     if (!isRecord(data) || (data.results !== undefined && !Array.isArray(data.results))) {
       throw new WeatherServiceError('Resposta de busca inválida.');
     }
-    const results: unknown[] = data.results ?? [];
+    const results: unknown[] = (data.results ?? []).slice(0, 10);
     return results.flatMap((result): City[] => {
       if (
         !isRecord(result) ||
@@ -181,8 +188,9 @@ export async function getWeatherByName(
   name: string,
   signal?: AbortSignal,
   onCity?: (city: City) => void,
+  now: Clock = () => Date.now(),
 ): Promise<WeatherLookupResult> {
-  const requestSignal = signal ?? AbortSignal.timeout(WEATHER_TIMEOUT_MS);
+  const requestSignal = createRequestSignal(signal);
   const cities = await searchCities(name, requestSignal);
   if (cities.length === 0) return null;
   const query = name.trim().toLocaleLowerCase('pt-BR');
@@ -208,10 +216,14 @@ export async function getWeatherByName(
   const city = orderedCities[0];
   requestSignal.throwIfAborted();
   onCity?.(city);
-  return getWeather(city, requestSignal);
+  return getWeather(city, requestSignal, now);
 }
 
-export async function getWeather(city: City, signal?: AbortSignal): Promise<WeatherData> {
+export async function getWeather(
+  city: City,
+  signal?: AbortSignal,
+  now: Clock = () => Date.now(),
+): Promise<WeatherData> {
   if (!validCoordinates(city.latitude, city.longitude)) {
     throw new WeatherServiceError('Coordenadas da cidade inválidas.', undefined, { city });
   }
@@ -230,7 +242,7 @@ export async function getWeather(city: City, signal?: AbortSignal): Promise<Weat
 
   try {
     const response = await fetch(url, {
-      signal: signal ?? AbortSignal.timeout(WEATHER_TIMEOUT_MS),
+      signal: createRequestSignal(signal),
     });
     if (!response.ok) {
       throw httpError(
@@ -251,7 +263,7 @@ export async function getWeather(city: City, signal?: AbortSignal): Promise<Weat
     }
 
     const { current, daily } = data;
-    const dailyTimes: unknown[] = Array.isArray(daily.time) ? daily.time : [];
+    const dailyTimes: unknown[] = Array.isArray(daily.time) ? daily.time.slice(0, 5) : [];
     const forecast = dailyTimes
       .map((localDate, index) => {
         if (typeof localDate !== 'string') return null;
@@ -264,11 +276,21 @@ export async function getWeather(city: City, signal?: AbortSignal): Promise<Weat
       })
       .filter((day) => day !== null);
 
+    const referenceTime = normalizeReferenceTime(current.time, data.utc_offset_seconds);
+    const evaluatedAt = typeof now === 'function' ? now() : now;
+    if (!isCurrentReferenceTime(referenceTime, evaluatedAt)) {
+      throw new WeatherServiceError(
+        'Os dados do clima estão desatualizados ou não podem ser confirmados.',
+        undefined,
+        { city },
+      );
+    }
+
     return {
       city,
       timezone: data.timezone,
       current: {
-        referenceTime: normalizeReferenceTime(current.time, data.utc_offset_seconds),
+        referenceTime,
         temperatureC: finiteNumber(current.temperature_2m),
         apparentTemperatureC: finiteNumber(current.apparent_temperature),
         humidityPercent: finiteNumber(current.relative_humidity_2m),

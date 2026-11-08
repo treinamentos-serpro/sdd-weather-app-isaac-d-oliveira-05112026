@@ -1,4 +1,4 @@
-import { CloudSun } from 'lucide-react';
+import { CloudSun, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import CurrentWeather from './components/CurrentWeather';
 import ForecastList from './components/ForecastList';
@@ -12,6 +12,7 @@ import { mockWeatherData } from './mocks/weather';
 import { getMockWeather } from './services/mockWeatherService';
 import type { WeatherLookupResult } from './services/weatherService';
 import { getWeather } from './services/weatherService';
+import { readWeatherPreferences, updateWeatherPreferences } from './services/weatherStorage';
 import type { City, Unit, WeatherData } from './types/weather';
 
 export type { AppState } from './hooks/useWeather';
@@ -31,12 +32,24 @@ export default function App({
   loadWeather = getMockWeather,
   loadCityWeather = getWeather,
 }: AppProps) {
-  const { state, search, selectCity, retry, retryBlocked } = useWeather({
+  const [preferences] = useState(readWeatherPreferences);
+  const [unit, setUnit] = useState<Unit>(preferences.temperatureUnit);
+  const initialCity = initialState.status === 'idle' ? preferences.lastCity : undefined;
+  const {
+    state,
+    weatherData,
+    search,
+    scheduleSearch,
+    selectCity,
+    refresh,
+    retry,
+    retryBlocked,
+  } = useWeather({
     initialState,
+    initialCity,
     loadWeather,
     loadCityWeather,
   });
-  const [unit, setUnit] = useState<Unit>('celsius');
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLElement>(null);
   const submittedControlRef = useRef<Element | null>(null);
@@ -57,9 +70,26 @@ export default function App({
   }
 
   function handleSearch(city: string) {
-    if (!city.trim() || state.status === 'loading') return;
+    if (!city.trim()) return;
+    if (
+      (state.status === 'choices' && state.query === city.trim()) ||
+      (state.status === 'error' && state.query === city.trim())
+    ) {
+      contentRef.current?.focus();
+      return;
+    }
     submittedControlRef.current = document.activeElement;
-    return search(city);
+    const request = search(city);
+    if (!request && state.status !== 'loading') {
+      contentRef.current?.focus();
+      submittedControlRef.current = null;
+    }
+    return request;
+  }
+
+  function handleUnitChange(nextUnit: Unit) {
+    setUnit(nextUnit);
+    updateWeatherPreferences({ temperatureUnit: nextUnit });
   }
 
   function handleRetry() {
@@ -71,6 +101,18 @@ export default function App({
     submittedControlRef.current = document.activeElement;
     return selectCity(city);
   }
+
+  function handleRefresh() {
+    submittedControlRef.current = document.activeElement;
+    return refresh();
+  }
+
+  const displayedData =
+    state.status === 'success'
+      ? state.data
+      : state.status === 'error'
+        ? (state.fallback ?? weatherData)
+        : weatherData;
 
   return (
     <div className="flex min-h-screen flex-col bg-night-900 font-sans text-white">
@@ -87,10 +129,10 @@ export default function App({
             <h1 className="text-2xl font-semibold">Weather App</h1>
           </div>
           <div ref={searchContainerRef} className="min-w-0">
-            <SearchBar onSearch={handleSearch} disabled={state.status === 'loading'} />
+            <SearchBar onSearch={handleSearch} onQueryChange={scheduleSearch} />
           </div>
           <div className="flex justify-end lg:pb-1">
-            <UnitToggle unit={unit} onChange={setUnit} />
+            <UnitToggle unit={unit} onChange={handleUnitChange} />
           </div>
         </div>
       </header>
@@ -102,7 +144,12 @@ export default function App({
         className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-400 sm:px-6"
       >
         {state.status === 'idle' && <EmptyState onSearch={focusSearch} />}
-        {state.status === 'loading' && <LoadingState />}
+        {state.status === 'loading' && !displayedData && <LoadingState />}
+        {state.status === 'loading' && displayedData && (
+          <p role="status" className="py-3 text-sm text-white/70">
+            Buscando ou atualizando dados...
+          </p>
+        )}
         {state.status === 'choices' && (
           <section aria-labelledby="city-choices-title" className="space-y-4">
             <div>
@@ -146,39 +193,35 @@ export default function App({
           <>
             <ErrorState message={state.message} onRetry={handleRetry} disabled={retryBlocked} />
             {state.fallback && (
-              <>
-                <p role="status">
-                  Dados desatualizados. Dados referentes a{' '}
-                  {new Intl.DateTimeFormat('pt-BR', {
-                    timeZone: state.fallback.timezone,
-                    dateStyle: 'short',
-                    timeStyle: 'short',
-                  }).format(new Date(state.fallback.current.referenceTime ?? ''))}
-                  .
-                </p>
-                <CurrentWeather
-                  city={state.fallback.city}
-                  current={state.fallback.current}
-                  unit={unit}
-                />
-                <ForecastList
-                  forecast={state.fallback.forecast}
-                  unit={unit}
-                  timezone={state.fallback.timezone}
-                  referenceTime={new Date().toISOString()}
-                />
-              </>
+              <p role="status">Dados desatualizados; exibindo o último cache elegível.</p>
             )}
           </>
         )}
-        {state.status === 'success' && (
+        {displayedData && (
           <>
-            <CurrentWeather city={state.data.city} current={state.data.current} unit={unit} />
-            <ForecastList
-              forecast={state.data.forecast}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                aria-label="Atualizar clima"
+                title="Atualizar clima"
+                disabled={retryBlocked}
+                onClick={handleRefresh}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-white hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw aria-hidden="true" className="h-5 w-5" />
+              </button>
+            </div>
+            <CurrentWeather
+              city={displayedData.city}
+              current={displayedData.current}
               unit={unit}
-              timezone={state.data.timezone}
-              referenceTime={state.data.fetchedAt}
+              timezone={displayedData.timezone}
+            />
+            <ForecastList
+              forecast={displayedData.forecast}
+              unit={unit}
+              timezone={displayedData.timezone}
+              referenceTime={displayedData.fetchedAt}
             />
           </>
         )}

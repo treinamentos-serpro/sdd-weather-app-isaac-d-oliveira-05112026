@@ -37,4 +37,9 @@ export interface WeatherSnapshot {
   fetchedAt: string;
 }
 
+export interface Preferences {
+  lastCity: City | null;
+  temperatureUnit: TemperatureUnit;
+}
+
 export type WeatherData = WeatherSnapshot;

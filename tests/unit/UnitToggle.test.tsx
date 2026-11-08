@@ -21,7 +21,12 @@ function CurrentWeatherWithUnitToggle() {
   return (
     <>
       <UnitToggle unit={unit} onChange={setUnit} />
-      <CurrentWeather city={mockWeatherData.city} current={current} unit={unit} />
+      <CurrentWeather
+        city={mockWeatherData.city}
+        current={current}
+        unit={unit}
+        timezone={mockWeatherData.timezone}
+      />
     </>
   );
 }

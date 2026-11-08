@@ -12,8 +12,9 @@ describe('CurrentWeather', () => {
     render(
       <CurrentWeather
         city={mockWeatherData.city}
-        current={{ ...mockWeatherData.current, pressureHpa: 1013.2 }}
+        current={mockWeatherData.current}
         unit="celsius"
+        timezone={mockWeatherData.timezone}
       />,
     );
 
@@ -26,14 +27,20 @@ describe('CurrentWeather', () => {
     expect(screen.getByText('72 %')).toBeInTheDocument();
     expect(screen.getByText('12,6 km/h')).toBeInTheDocument();
     expect(screen.getByText('0 mm')).toBeInTheDocument();
-    expect(screen.getByText('1.013,2 hPa')).toBeInTheDocument();
-    for (const label of ['Umidade', 'Vento', 'Precipitação', 'Pressão']) {
+    expect(screen.getByText('Dados referentes a 10:00')).toBeInTheDocument();
+    expect(screen.getByText('Idade da execução do modelo: Indisponível')).toBeInTheDocument();
+    expect(screen.queryByText('Pressão')).not.toBeInTheDocument();
+    for (const label of ['Umidade', 'Vento', 'Precipitação']) {
       expect(screen.getByText(label).tagName).toBe('DT');
     }
   });
 
   it('atualiza temperaturas pela prop unit sem alterar as outras unidades', () => {
-    const props = { city: mockWeatherData.city, current: mockWeatherData.current };
+    const props = {
+      city: mockWeatherData.city,
+      current: mockWeatherData.current,
+      timezone: mockWeatherData.timezone,
+    };
     const { rerender } = render(<CurrentWeather {...props} unit="celsius" />);
     expect(screen.getByText('23 °C')).toBeInTheDocument();
 
@@ -58,13 +65,13 @@ describe('CurrentWeather', () => {
           humidityPercent: null,
           windKmh: null,
           precipitationMm: null,
-          pressureHpa: null,
         }}
         unit={unit}
+        timezone={mockWeatherData.timezone}
       />,
     );
 
-    expect(screen.getAllByText('Indisponível')).toHaveLength(6);
+    expect(screen.getAllByText('Indisponível')).toHaveLength(5);
     expect(screen.getByText('Sensação térmica: Indisponível')).toBeInTheDocument();
     expect(screen.queryByText('0 mm')).not.toBeInTheDocument();
     expect(screen.queryByText('0 °C')).not.toBeInTheDocument();
@@ -77,11 +84,12 @@ describe('CurrentWeather', () => {
         city={{ ...mockWeatherData.city, admin1: null, country: null }}
         current={{ ...mockWeatherData.current, weatherCode: 999 }}
         unit="celsius"
+        timezone={mockWeatherData.timezone}
       />,
     );
 
-    expect(screen.getAllByText('Indisponível')).toHaveLength(2);
-    expect(screen.getByText('Pressão').nextElementSibling).toHaveTextContent('Indisponível');
+    expect(screen.getAllByText('Indisponível')).toHaveLength(1);
+    expect(screen.queryByText('Pressão')).not.toBeInTheDocument();
     expect(screen.queryByText('null')).not.toBeInTheDocument();
   });
 
@@ -89,6 +97,7 @@ describe('CurrentWeather', () => {
     const props = {
       city: mockWeatherData.city,
       current: { ...mockWeatherData.current, temperatureC: 18.4, apparentTemperatureC: -2.5 },
+      timezone: mockWeatherData.timezone,
     };
     const { rerender } = render(<CurrentWeather {...props} unit="celsius" />);
 

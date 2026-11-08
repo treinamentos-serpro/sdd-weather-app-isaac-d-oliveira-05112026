@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   getWeather,
   getWeatherByName,
+  searchCities,
   WeatherServiceError,
 } from '../../src/services/weatherService';
 import type { City } from '../../src/types/weather';
@@ -16,6 +17,7 @@ const city: City = {
   latitude: -23.5,
   longitude: -46.6,
 };
+const referenceNow = Date.parse('2026-11-05T13:00:00.000Z');
 
 const forecastResponse = {
   timezone: 'America/Sao_Paulo',
@@ -42,7 +44,7 @@ describe('getWeather', () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json(forecastResponse));
     vi.stubGlobal('fetch', fetchMock);
 
-    const weather = await getWeather(city);
+    const weather = await getWeather(city, undefined, referenceNow);
 
     expect(weather.city).toEqual(city);
     expect(weather.timezone).toBe('America/Sao_Paulo');
@@ -75,7 +77,7 @@ describe('getWeather', () => {
         .mockResolvedValueOnce(Response.json(forecastResponse));
       vi.stubGlobal('fetch', fetchMock);
 
-      const weather = await getWeatherByName('São Paulo');
+      const weather = await getWeatherByName('São Paulo', undefined, undefined, referenceNow);
 
       if (!weather || Array.isArray(weather))
         throw new Error('Era esperado o retorno da previsão.');
@@ -91,6 +93,17 @@ describe('getWeather', () => {
 
       await expect(getWeatherByName('Inexistente')).resolves.toBeNull();
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('limita resultados de geocoding a dez mesmo se o provedor enviar mais', async () => {
+      const results = Array.from({ length: 12 }, (_, index) => ({
+        ...city,
+        id: index,
+        name: `Cidade ${index}`,
+      }));
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ results })));
+
+      await expect(searchCities('Cidade')).resolves.toHaveLength(10);
     });
 
     it.each([
@@ -153,7 +166,7 @@ describe('getWeather', () => {
     };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(partialResponse)));
 
-    const weather = await getWeather(city);
+    const weather = await getWeather(city, undefined, referenceNow);
 
     expect(weather.current.temperatureC).toBeNull();
     expect(weather.current.apparentTemperatureC).toBeNull();
@@ -170,6 +183,54 @@ describe('getWeather', () => {
       weatherCode: null,
       minimumC: 17,
       maximumC: 23.8,
+    });
+  });
+
+  it('limita o forecast a cinco registros mesmo se o provedor enviar mais', async () => {
+    const extendedResponse = {
+      ...forecastResponse,
+      daily: {
+        ...forecastResponse.daily,
+        time: [...forecastResponse.daily.time, '2026-11-10', '2026-11-11'],
+        weather_code: [...forecastResponse.daily.weather_code, 2, 3],
+        temperature_2m_min: [...forecastResponse.daily.temperature_2m_min, 12, 13],
+        temperature_2m_max: [...forecastResponse.daily.temperature_2m_max, 20, 21],
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(extendedResponse)));
+
+    const result = await getWeather(city, undefined, referenceNow);
+
+    expect(result.forecast).toHaveLength(5);
+    expect(result.forecast.map((day) => day.localDate)).toEqual(forecastResponse.daily.time);
+  });
+
+  it('aceita timestamp com exatamente 60 minutos e rejeita dados antigos ou futuros', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(Response.json(forecastResponse))));
+    await expect(getWeather(city, undefined, referenceNow + 60 * 60 * 1000)).resolves.toBeDefined();
+    await expect(getWeather(city, undefined, referenceNow + 60 * 60 * 1000 + 1)).rejects.toMatchObject(
+      { city, message: expect.stringContaining('desatualizados') },
+    );
+    await expect(getWeather(city, undefined, referenceNow - 1)).rejects.toMatchObject({
+      city,
+      message: expect.stringContaining('desatualizados'),
+    });
+  });
+
+  it('avalia a atualidade quando a resposta chega, não no início da chamada', async () => {
+    let resolveResponse!: (response: Response) => void;
+    const fetchMock = vi.fn(
+      () => new Promise<Response>((resolve) => (resolveResponse = resolve)),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    let now = referenceNow + 60 * 60 * 1000;
+    const request = getWeather(city, undefined, () => now);
+
+    now += 1;
+    resolveResponse(Response.json(forecastResponse));
+
+    await expect(request).rejects.toMatchObject({
+      message: expect.stringContaining('desatualizados'),
     });
   });
 
@@ -217,6 +278,44 @@ describe('getWeather', () => {
       await assertion;
       expect(timeoutMock).toHaveBeenCalledWith(5000);
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      timeoutMock.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('aplica timeout de cinco segundos mesmo com sinal externo sem prazo', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const timeoutController = new AbortController();
+    const timeoutMock = vi.spyOn(AbortSignal, 'timeout').mockImplementation((delay) => {
+      setTimeout(
+        () => timeoutController.abort(new DOMException('Timeout', 'TimeoutError')),
+        delay,
+      );
+      return timeoutController.signal;
+    });
+    const fetchMock = vi.fn((_url: string, options: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        options.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+          once: true,
+        });
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const geocoding = expect(searchCities('São Paulo', controller.signal)).rejects.toMatchObject({
+        message: expect.stringContaining('5 segundos'),
+      });
+      const forecast = expect(getWeather(city, controller.signal)).rejects.toMatchObject({
+        message: expect.stringContaining('5 segundos'),
+      });
+      await vi.advanceTimersByTimeAsync(5000);
+      await Promise.all([geocoding, forecast]);
+
+      expect(timeoutMock).toHaveBeenCalledTimes(2);
+      expect(controller.signal.aborted).toBe(false);
     } finally {
       timeoutMock.mockRestore();
       vi.useRealTimers();

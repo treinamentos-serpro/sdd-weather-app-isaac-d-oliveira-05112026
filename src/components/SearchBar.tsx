@@ -2,10 +2,11 @@ import { type FormEvent, useId, useState } from 'react';
 
 interface SearchBarProps {
   onSearch: (city: string) => void;
+  onQueryChange?: (city: string) => void;
   disabled?: boolean;
 }
 
-export default function SearchBar({ onSearch, disabled = false }: SearchBarProps) {
+export default function SearchBar({ onSearch, onQueryChange, disabled = false }: SearchBarProps) {
   const inputId = useId();
   const [city, setCity] = useState('');
   const query = city.trim();
@@ -27,7 +28,10 @@ export default function SearchBar({ onSearch, disabled = false }: SearchBarProps
           type="search"
           name="city"
           value={city}
-          onChange={(event) => setCity(event.target.value)}
+          onChange={(event) => {
+            setCity(event.target.value);
+            onQueryChange?.(event.target.value.trim());
+          }}
           disabled={disabled}
           className="min-h-11 w-full min-w-0 flex-1 rounded-lg border border-white/40 bg-white/5 px-4 py-3 text-white shadow-glass backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-400 disabled:cursor-not-allowed disabled:opacity-50"
         />

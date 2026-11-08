@@ -5,22 +5,13 @@ import { getWeatherCondition } from '../lib/weatherCodes';
 import type { ForecastDay, Unit } from '../types/weather';
 import WeatherIcon from './WeatherIcon';
 
-export type ForecastDisplayDay = ForecastDay & {
-  precipitationProbabilityPercent?: number | null;
-};
+export type ForecastDisplayDay = ForecastDay;
 
 interface ForecastCardProps {
   day: ForecastDisplayDay;
   unit: Unit;
   timezone: string;
   referenceTime?: string;
-}
-
-function formatRainProbability(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value) || value < 0 || value > 100) {
-    return 'Indisponível';
-  }
-  return `${value.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} %`;
 }
 
 export default function ForecastCard({
@@ -59,12 +50,6 @@ export default function ForecastCard({
             <dd className="text-sm font-medium [overflow-wrap:anywhere]">{value}</dd>
           </div>
         ))}
-        <div className="min-w-0 border-t border-white/10 pt-3">
-          <dt className="break-words text-xs text-white/70">Probabilidade de chuva</dt>
-          <dd className="mt-1 text-sm font-medium [overflow-wrap:anywhere]">
-            {formatRainProbability(day.precipitationProbabilityPercent)}
-          </dd>
-        </div>
       </dl>
     </article>
   );

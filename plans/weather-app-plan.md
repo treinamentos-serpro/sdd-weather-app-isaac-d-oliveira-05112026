@@ -10,18 +10,20 @@ Implementar as fases abaixo em ordem. Cada fase deve concluir seus critérios e 
 
 - Extrair uma regra pura que valide o timestamp de referência como instante finito, não futuro e com idade máxima de 60 minutos, usando relógio injetável. A normalização local + `utc_offset_seconds` continua independente do fuso do dispositivo.
 - Aplicar a validação antes de classificar uma resposta como clima atual. Uma referência inválida, futura ou antiga resulta em estado de erro/desatualizado, retry e somente cache elegível; campos meteorológicos ausentes com referência atual válida continuam sendo sucesso parcial.
+- Garantir timeout total de cinco segundos no service mesmo quando o chamador fornece `AbortSignal`, preservando também o cancelamento externo. Respostas sem corpo válido no prazo devem falhar como timeout.
 - Passar `referenceTime`, fuso e `modelRunAt` à apresentação. Mostrar “Dados referentes a HH:mm” e “Idade da execução do modelo: Indisponível” quando não houver metadado confiável; nunca derivar a idade do modelo da referência.
-- **Saída verificável:** testes de limite em 60 minutos, 60 minutos + 1 ms, horário futuro/inválido e fuso distinto; UI identifica referência e idade do modelo em separado.
+- **Saída verificável:** testes de limite em 60 minutos, 60 minutos + 1 ms, horário futuro/inválido e fuso distinto; testes do service provam timeout com e sem sinal externo e cancelamento externo; UI identifica referência e idade do modelo em separado.
 - **Rastreabilidade:** RF2/NFR6; AC7–AC9, AC30, AC47–AC48.
 
 ### Fase 2 — Busca e seleção explícita
 
 - Separar a busca de geocoding da consulta meteorológica: apresentar até 10 cidades válidas, ordenadas por nome exato, prefixo e ocorrência parcial, preservando a ordem do provedor nos empates.
+- Aplicar limites defensivos também ao parsing: processar no máximo 10 resultados de geocoding e cinco registros diários, mesmo se a resposta exceder os parâmetros solicitados ao provedor.
 - Limitar a busca aos candidatos retornados pelo provedor nesta versão. Teste manual em 2026-11-07: “pinhais” não apresentou “São José dos Pinhais”; nome completo ou consulta mais específica são as alternativas atuais. Não prometer cobertura parcial exaustiva nem adicionar uma segunda fonte sem avaliar cobertura e orçamento de chamadas.
 - Manter consulta aparada, preservando acentos e pontuação no valor enviado. Consulta vazia não chama o serviço e apresenta mensagem acionável.
 - Selecionar automaticamente somente uma correspondência com nome, coordenadas e contexto geográfico completos. Para múltiplos resultados ou contexto incompleto, exigir seleção explícita; nenhuma cidade deve ser consultada antes da seleção.
 - A lista de sugestões deve ser operável por teclado e nomear cidade, região/estado e país. Respostas antigas de busca não podem substituir resultados da consulta vigente.
-- **Saída verificável:** testes de ordenação estável, auto-seleção elegível, homônimos, contexto ausente, consulta vazia, acentos/pontuação e resposta parcial sem candidato esperado; E2E cobre seleção por teclado e escolha explícita. Registrar a cobertura real do geocoder sem tratá-la como exaustiva.
+- **Saída verificável:** testes de ordenação estável, auto-seleção elegível, homônimos, contexto ausente, consulta vazia, acentos/pontuação, resposta parcial sem candidato esperado e respostas acima dos limites; E2E cobre seleção por teclado e escolha explícita. Registrar a cobertura real do geocoder sem tratá-la como exaustiva.
 - **Rastreabilidade:** RF1; AC1–AC5, AC32–AC33, AC56.
 
 ### Fase 3 — Preferências, cidade lembrada e cache
@@ -45,9 +47,16 @@ Implementar as fases abaixo em ordem. Cada fase deve concluir seus critérios e 
 
 - Expandir os testes de layout para busca, resultados, clima, previsão, loading e erro nas larguras 320, 375, 768, 1024 e 1440 CSS px; verificar rolagem horizontal, corte de conteúdo e acesso por teclado.
 - Manter `aria-busy`, mensagens de estado semântico, foco condicional após busca/retry e estados visuais inativos para controles desabilitados.
-- Completar avaliação manual com teclado e tecnologias assistivas nas combinações e navegadores definidos em NFR4/NFR7; registrar ambiente e evidências, pois Playwright não substitui essa avaliação.
-- **Saída verificável:** E2E cobre as viewports/estados indicados; checklist manual de acessibilidade tem evidências por combinação testada.
+- No escopo deste workshop, executar verificações automatizadas e fluxos de teclado possíveis, mas não declarar AC42/NFR4 aprovados: a avaliação manual com leitores de tela e a matriz de dispositivos/navegadores não podem ser realizadas aqui. Registrar essa validação como pendente para um ambiente de QA apropriado.
+- **Saída verificável:** E2E cobre as viewports/estados indicados e os fluxos de teclado disponíveis; a limitação e a validação manual pendente ficam registradas, sem alegar conformidade integral com AC42.
 - **Rastreabilidade:** NFR1, NFR4, NFR7; AC42, AC49.
+
+### Fase 6 — Remover métricas sem suporte
+
+- Remover a pressão do clima atual e a probabilidade de chuva da previsão. Nenhuma delas faz parte dos campos exigidos por RF2/RF3 ou está disponível no modelo de dados/contrato do provedor implementado; não apresentar “Indisponível” para campos que não fazem parte do produto.
+- Manter no clima atual apenas temperatura, condição, sensação térmica, umidade, vento e precipitação; em cada dia da previsão, manter condição e temperaturas mínima/máxima, sinalizando somente campos requeridos que estejam ausentes.
+- **Saída verificável:** testes dos componentes confirmam que a pressão e a probabilidade de chuva não são renderizadas e que todos os campos exigidos por RF2/RF3 continuam presentes, inclusive os estados “Indisponível” para dados requeridos ausentes.
+- **Rastreabilidade:** RF2, RF3; AC6, AC10, AC29, AC31.
 
 ### Gate operacional — Antes de piloto/publicação
 
@@ -370,10 +379,10 @@ Cache elegível em qualquer falha: `storedAt` parseável com idade não negativa
 
 - **Vitest — funções puras (`lib/`):** conversão °C/°F, conversão antes do arredondamento e empates afastados de zero; códigos WMO conhecidos/desconhecidos; ordenação estável e elegibilidade de seleção; normalização do horário local com o offset do provedor; formatação pt-BR/24h e datas no fuso da cidade; atualidade nos limites de 60 minutos; TTL de cache de três horas; interpretação de `Retry-After`. Usar entradas fixas e relógio controlado, sem rede ou DOM.
 - **Vitest — services:** substituir `fetch` por mock e validar URL/parâmetros, parsing e normalização de respostas geocoding/forecast, valores ausentes, arrays diárias incompletas, HTTP, rede, timeout/abort e `429`. Mockar storage para validar serialização, dados inválidos e fallback de cache. Não chamar o serviço real nos testes automatizados.
-- **Vitest + Testing Library — componentes:** renderizar e verificar estados `loading`, `error`, `empty` e `success`, inclusive sucesso parcial e cache stale; textos de indisponibilidade, retry, sugestões acessíveis, teclado e alternância de unidade. Os componentes recebem dados/props ou serviços simulados; conferir que clicar °C/°F altera a apresentação sem disparar novo fetch.
+- **Vitest + Testing Library — componentes:** renderizar e verificar estados `loading`, `error`, `empty` e `success`, inclusive sucesso parcial e cache stale; textos de indisponibilidade, retry, sugestões acessíveis, teclado e alternância de unidade. Confirmar também que pressão e probabilidade de chuva não aparecem; os componentes recebem dados/props ou serviços simulados; conferir que clicar °C/°F altera a apresentação sem disparar novo fetch.
 - **Vitest — hook/orquestração:** testar transições de estado, debounce/cancelamento da busca, concorrência coalescida, respostas tardias ignoradas, atualização manual, temporizador de 15 minutos, pausa/retomada por visibilidade, persistência de preferências e bloqueio manual em `429`. Controlar relógio, timers, visibilidade e dependências para resultados determinísticos.
 - **Playwright — E2E:** percorrer busca → escolha de cidade → clima atual/previsão; resolver cidade homônima explicitamente; verificar aviso sobre previsões/alertas e atribuição Open-Meteo (AC17/AC18); confirmar estados de loading, vazio e erro; testar cache após falha, retry, alternância de unidade persistida após reload e ausência de uma chamada meteorológica causada somente pela troca de unidade. Interceptar Open-Meteo para fixtures previsíveis e simular sucesso, parcial, falha, timeout e `429`.
-- **Playwright — responsividade mobile:** executar os fluxos essenciais em 320 e 375 CSS px, conferindo ausência de rolagem horizontal, conteúdo cortado e controles inacessíveis. Cobrir também as larguras da spec (768, 1024 e 1440 px) para os estados/telas do AC49. Complementar E2E com teclado e avaliação manual de leitores de tela/navegadores conforme NFR4 e NFR7.
+- **Playwright — responsividade mobile:** executar os fluxos essenciais em 320 e 375 CSS px, conferindo ausência de rolagem horizontal, conteúdo cortado e controles inacessíveis. Cobrir também as larguras da spec (768, 1024 e 1440 px) para os estados/telas do AC49. Complementar E2E com fluxos de teclado. A avaliação manual com leitores de tela e a matriz NFR4/NFR7 ficam explicitamente pendentes fora do workshop; os testes automatizados não serão apresentados como substitutos nem como aprovação de AC42.
 - **Operação e lançamento:** distinguir latência/renderização da interface da latência do provedor; avaliar LCP segundo o limiar amostral da spec e disponibilidade sintética da interface. Métricas reais ficam desativadas até aprovações de privacidade; validar orçamento de 1.000 chamadas no piloto por processo operacional, contando geocoding, previsão e tentativas.
 - **Validação de produto (AC46):** atividade de pesquisa separada dos testes automatizados. Após definir recrutamento e protocolo, medir a tarefa com 30 participantes; considerar a meta atingida com pelo menos 27 conclusões corretas em até 30 segundos. Critérios de recrutamento permanecem uma questão aberta da spec.
 - Scripts previstos no repositório: `pnpm lint`, `pnpm build`, `pnpm test` e, para E2E, `pnpm test:e2e`.

@@ -7,13 +7,13 @@ import { mockWeatherData } from '../../src/mocks/weather';
 afterEach(cleanup);
 
 const props = {
-  day: { ...mockWeatherData.forecast[0], precipitationProbabilityPercent: 35 },
+  day: mockWeatherData.forecast[0],
   timezone: mockWeatherData.timezone,
   referenceTime: mockWeatherData.fetchedAt,
 };
 
 describe('ForecastCard', () => {
-  it('mostra o dia, condição, temperaturas e probabilidade de chuva', () => {
+  it('mostra o dia, condição e temperaturas sem métricas sem suporte', () => {
     render(<ForecastCard {...props} unit="celsius" />);
 
     expect(screen.getByRole('article', { name: 'Hoje' })).toBeInTheDocument();
@@ -22,46 +22,16 @@ describe('ForecastCard', () => {
     expect(screen.getByText('Parcialmente nublado')).toBeInTheDocument();
     expect(screen.getByText('Máxima').nextElementSibling).toHaveTextContent('25 °C');
     expect(screen.getByText('Mínima').nextElementSibling).toHaveTextContent('16 °C');
-    expect(screen.getByText('Probabilidade de chuva').nextElementSibling).toHaveTextContent('35 %');
+    expect(screen.queryByText('Probabilidade de chuva')).not.toBeInTheDocument();
   });
 
-  it('atualiza as temperaturas sem alterar a probabilidade', () => {
+  it('atualiza as temperaturas entre unidades', () => {
     const { rerender } = render(<ForecastCard {...props} unit="celsius" />);
     rerender(<ForecastCard {...props} unit="fahrenheit" />);
 
     expect(screen.getByText('Máxima').nextElementSibling).toHaveTextContent('77 °F');
     expect(screen.getByText('Mínima').nextElementSibling).toHaveTextContent('61 °F');
-    expect(screen.getByText('35 %')).toBeInTheDocument();
-  });
-
-  it.each([0, 100])('preserva a probabilidade válida de %s %%', (probability) => {
-    render(
-      <ForecastCard
-        {...props}
-        day={{ ...props.day, precipitationProbabilityPercent: probability }}
-        unit="celsius"
-      />,
-    );
-    expect(screen.getByText(`${probability} %`)).toBeInTheDocument();
-  });
-
-  it.each([
-    undefined,
-    null,
-    -1,
-    101,
-    Number.NaN,
-  ])('não inventa probabilidade para %s', (probability) => {
-    render(
-      <ForecastCard
-        {...props}
-        day={{ ...props.day, precipitationProbabilityPercent: probability }}
-        unit="celsius"
-      />,
-    );
-    expect(screen.getByText('Probabilidade de chuva').nextElementSibling).toHaveTextContent(
-      'Indisponível',
-    );
+    expect(screen.queryByText('Probabilidade de chuva')).not.toBeInTheDocument();
   });
 
   it('identifica valores ausentes e condição desconhecida', () => {

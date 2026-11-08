@@ -164,7 +164,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 ### T-13 — Implementar serviço de geocoding
 - **Tipo:** Data
 - **Descrição:** Consultar Geocoding Open-Meteo e converter resposta para resultados de domínio.
-- **Critérios de aceite:** Consulta vazia/apenas espaços resulta em zero chamadas Fetch; consulta aparada mantém acentos, hífen e apóstrofo; URL codificada contém `count=10`, `language=pt` e `format=json`; respostas vazias viram lista vazia, resultados são limitados aos candidatos válidos recebidos do provedor e a ausência de um nome parcial não é tratada como prova de inexistência da cidade; falhas de rede/HTTP são rejeições tipadas; a chamada encerra em até cinco segundos e 429 não dispara retry automático. A busca complementar para nomes omitidos fica pendente da decisão registrada nas Open Questions da spec.
+- **Critérios de aceite:** Consulta vazia/apenas espaços resulta em zero chamadas Fetch; consulta aparada mantém acentos, hífen e apóstrofo; URL codificada contém `count=10`, `language=pt` e `format=json`; respostas vazias viram lista vazia; no máximo 10 candidatos válidos são processados mesmo se a resposta exceder `count`; a ausência de um nome parcial não é tratada como prova de inexistência da cidade; falhas de rede/HTTP são rejeições tipadas; o service encerra em até cinco segundos mesmo quando recebe um `AbortSignal` que não tem prazo próprio, preservando o cancelamento externo; HTTP 429 não dispara retry automático. A busca complementar para nomes omitidos fica pendente da decisão registrada nas Open Questions da spec.
 - **Dependências:** T-03, T-12
 - **Arquivos prováveis:** `src/services/openMeteo.ts`
 - **Requisitos:** RF1; AC2, AC5, AC32–AC33, AC56
@@ -172,7 +172,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 ### T-14 — Implementar serviço de previsão
 - **Tipo:** Data
 - **Descrição:** Consultar Forecast API e normalizar clima atual e registros diários.
-- **Critérios de aceite:** URL contém latitude/longitude, todos os campos `current`/`daily` do plano, `temperature_unit=celsius`, `wind_speed_unit=kmh`, `precipitation_unit=mm`, `timezone=auto` e `forecast_days=5`; campos ausentes/inválidos viram `null` e arrays são pareados por índice sem criar registros; `current.time` é normalizado com o offset da resposta e fuso IANA inválido é rejeitado; timeout ocorre em cinco segundos; 429 não repete e define `retryAt` a partir de `Retry-After` em segundos/data HTTP ou 60 segundos quando ausente/inválido; `modelRunAt` fica `null` sem metadado confiável.
+- **Critérios de aceite:** URL contém latitude/longitude, todos os campos `current`/`daily` do plano, `temperature_unit=celsius`, `wind_speed_unit=kmh`, `precipitation_unit=mm`, `timezone=auto` e `forecast_days=5`; campos ausentes/inválidos viram `null` e arrays são pareados por índice sem criar registros; no máximo cinco registros diários são processados mesmo se a resposta exceder `forecast_days`; `current.time` é normalizado com o offset da resposta e fuso IANA inválido é rejeitado; timeout ocorre em cinco segundos mesmo quando o service recebe um `AbortSignal` sem prazo próprio, preservando o cancelamento externo; 429 não repete e define `retryAt` a partir de `Retry-After` em segundos/data HTTP ou 60 segundos quando ausente/inválido; `modelRunAt` fica `null` sem metadado confiável.
 - **Dependências:** T-03, T-06, T-13
 - **Arquivos prováveis:** `src/services/openMeteo.ts`
 - **Requisitos:** RF2, RF3, RF8, RF9; AC6–AC10, AC29–AC31, AC34, AC38, AC52
@@ -204,7 +204,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 ### T-18 — Testar serviço de geocoding
 - **Tipo:** Test
 - **Descrição:** Validar URL, parsing e erros do serviço de busca sem rede real.
-- **Critérios de aceite:** Toda chamada usa Fetch mockado; asserts conferem os parâmetros `count=10`, `language=pt`, `format=json`, consulta vazia sem chamada, preservação de acentos/pontuação, resposta sem resultados como lista vazia, uma resposta que omite uma localidade parcial exibindo apenas os candidatos retornados e erros HTTP/rede rejeitados com o tipo esperado.
+- **Critérios de aceite:** Toda chamada usa Fetch mockado; asserts conferem os parâmetros `count=10`, `language=pt`, `format=json`, consulta vazia sem chamada, preservação de acentos/pontuação, resposta sem resultados como lista vazia, uma resposta que omite uma localidade parcial exibindo apenas os candidatos retornados, limite local de 10 resultados mesmo diante de payload maior, timeout com e sem sinal externo e erros HTTP/rede rejeitados com o tipo esperado.
 - **Dependências:** T-13
 - **Arquivos prováveis:** `tests/services/geocoding.test.ts`
 - **Requisitos:** RF1; AC2, AC5, AC32–AC33, AC56
@@ -212,7 +212,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 ### T-19 — Testar serviço de previsão
 - **Tipo:** Test
 - **Descrição:** Validar request, normalização e falhas do Forecast API com fixtures.
-- **Critérios de aceite:** Toda chamada usa fixture/Fetch mockado; asserts conferem cada parâmetro do contrato, conversão de campos ausentes para `null`, arrays curtos sem dias fabricados, UTC calculado pelo offset, timeout/abortamento em cinco segundos, classificação HTTP/rede, zero retries automáticos em 429 e `retryAt` para `Retry-After` em segundos, data HTTP e header ausente/inválido (60 segundos); nenhuma chamada real ocorre.
+- **Critérios de aceite:** Toda chamada usa fixture/Fetch mockado; asserts conferem cada parâmetro do contrato, conversão de campos ausentes para `null`, arrays curtos sem dias fabricados, limite de cinco dias para respostas maiores, UTC calculado pelo offset, timeout/abortamento em cinco segundos com e sem sinal externo e preservação do cancelamento externo, classificação HTTP/rede, zero retries automáticos em 429 e `retryAt` para `Retry-After` em segundos, data HTTP e header ausente/inválido (60 segundos); nenhuma chamada real ocorre.
 - **Dependências:** T-14
 - **Arquivos prováveis:** `tests/services/forecast.test.ts`
 - **Requisitos:** RF2, RF3, RF8, RF9; AC29–AC31, AC34, AC52
@@ -262,7 +262,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 ### T-25 — Exibir clima atual e atualidade
 - **Tipo:** UI
 - **Descrição:** Renderizar condição, temperaturas e demais medidas atuais com seus metadados temporais.
-- **Critérios de aceite:** Renderiza temperatura, sensação térmica, condição, umidade, vento e precipitação; cada valor ausente mostra “Indisponível”; unidades exibidas são °C/°F, %, km/h e mm; mostra “Dados referentes a HH:mm” no fuso recebido e “Idade da execução do modelo: Indisponível” sem metadado; referência futura/inválida/mais antiga que 60 minutos não recebe apresentação de dado atual.
+- **Critérios de aceite:** Renderiza temperatura, sensação térmica, condição, umidade, vento e precipitação; cada valor ausente mostra “Indisponível”; unidades exibidas são °C/°F, %, km/h e mm; não adiciona pressão sem campo no contrato; mostra “Dados referentes a HH:mm” no fuso recebido e “Idade da execução do modelo: Indisponível” sem metadado; referência futura/inválida/mais antiga que 60 minutos não recebe apresentação de dado atual.
 - **Dependências:** T-04, T-05, T-06, T-07
 - **Arquivos prováveis:** `src/components/CurrentWeather.tsx`
 - **Requisitos:** RF2, RF9; AC6–AC9, AC29–AC30, AC47–AC48
@@ -278,7 +278,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 ### T-27 — Exibir previsão diária
 - **Tipo:** UI
 - **Descrição:** Renderizar os dias locais, condição e temperaturas mínima/máxima disponíveis.
-- **Critérios de aceite:** Para cada item recebido renderiza data, condição e mín./máx.; campo ausente aparece como “Indisponível”; previsão com menos de cinco dias ou campo faltante exibe sinal de incompleta e não cria registros; resposta completa exibe exatamente cinco datas locais consecutivas.
+- **Critérios de aceite:** Para cada item recebido renderiza data, condição e mín./máx.; campo ausente aparece como “Indisponível”; não exibe probabilidade de chuva sem campo no contrato; previsão com menos de cinco dias ou campo faltante exibe sinal de incompleta e não cria registros; resposta completa exibe exatamente cinco datas locais consecutivas.
 - **Dependências:** T-04, T-05, T-07
 - **Arquivos prováveis:** `src/components/Forecast.tsx`
 - **Requisitos:** RF3, RF9; AC10, AC26–AC28, AC31
@@ -302,7 +302,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 ### T-30 — Testar exibição de clima atual e cache
 - **Tipo:** Test
 - **Descrição:** Verificar valores, indisponibilidades, atualidade e indicação stale.
-- **Critérios de aceite:** Asserções verificam cada campo e unidade no cenário completo, “Indisponível” para cada campo nulo, rótulo de horário, metadado do modelo indisponível, referência inválida/antiga não atual e fallback elegível marcado stale; cache inelegível não aparece.
+- **Critérios de aceite:** Asserções verificam cada campo requerido e unidade no cenário completo, “Indisponível” para cada campo nulo, ausência de pressão sem suporte, rótulo de horário, metadado do modelo indisponível, referência inválida/antiga não atual e fallback elegível marcado stale; cache inelegível não aparece.
 - **Dependências:** T-25, T-26
 - **Arquivos prováveis:** `tests/components/CurrentWeather.test.tsx`
 - **Requisitos:** RF2, RF8; AC6–AC9, AC23–AC24, AC29–AC30, AC47–AC48
@@ -310,7 +310,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 ### T-31 — Testar exibição da previsão
 - **Tipo:** Test
 - **Descrição:** Verificar renderização de dias completos e parciais.
-- **Critérios de aceite:** Com fixture de cinco dias, asserts conferem as cinco datas no fuso da cidade; com fixture curta/parcial, conferem somente os registros recebidos, “Indisponível” nos campos nulos e aviso de previsão incompleta.
+- **Critérios de aceite:** Com fixture de cinco dias, asserts conferem as cinco datas no fuso da cidade e ausência de probabilidade de chuva sem suporte; com fixture curta/parcial, conferem somente os registros recebidos, “Indisponível” nos campos meteorológicos requeridos nulos e aviso de previsão incompleta.
 - **Dependências:** T-27
 - **Arquivos prováveis:** `tests/components/Forecast.test.tsx`
 - **Requisitos:** RF3, RF9; AC10, AC26–AC28, AC31
@@ -459,6 +459,7 @@ Cada fatia inclui implementação e validação correspondente; tarefas P1/P2 po
 - **Tipo:** Test
 - **Descrição:** Registrar verificações de viewport, teclado, leitores de tela e compatibilidade.
 - **Critérios de aceite:** Nos viewports 320, 375, 768, 1024 e 1440 CSS px, busca, resultados, clima, previsão, loading e erro passam sem rolagem horizontal ou conteúdo cortado; avaliação registra conformidade WCAG 2.2 AA aplicável e operabilidade por teclado, VoiceOver/Safari no iOS e macOS, TalkBack/Chrome no Android e NVDA/Firefox no Windows; checklist registra versões de Chrome, Safari, Firefox e Edge testadas, além de smoke tests em iPhone e Android reais.
+- **Limite deste workshop:** executar somente verificações automatizadas e fluxos de teclado viáveis; a avaliação manual com leitores de tela, dispositivos reais e a matriz completa NFR4/NFR7 não pode ser feita neste ambiente. Manter AC42 pendente e não declarar conformidade integral até a validação em QA apropriado.
 - **Dependências:** T-40–T-43, T-52
 - **Arquivos prováveis:** `tests/e2e/responsive.spec.ts`, `docs/qa/compatibility-checklist.md`
 - **Requisitos:** NFR1, NFR4, NFR7; AC42, AC49

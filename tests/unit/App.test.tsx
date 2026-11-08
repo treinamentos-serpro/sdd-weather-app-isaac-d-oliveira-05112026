@@ -5,10 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/App';
 import { mockWeatherData } from '../../src/mocks/weather';
 import { getMockWeather } from '../../src/services/mockWeatherService';
+import { readWeatherPreferences, updateWeatherPreferences } from '../../src/services/weatherStorage';
 import type { City, WeatherData } from '../../src/types/weather';
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -53,6 +55,27 @@ describe('App', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('restaura cidade e Fahrenheit e consulta a cidade salva ao iniciar', async () => {
+    updateWeatherPreferences({ lastCity: mockWeatherData.city, temperatureUnit: 'fahrenheit' });
+    const loadCityWeather = vi.fn().mockResolvedValue(mockWeatherData);
+    render(
+      <App
+        initialState={{ status: 'idle' }}
+        loadWeather={vi.fn()}
+        loadCityWeather={loadCityWeather}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '°F', pressed: true })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'São Paulo' })).toBeInTheDocument();
+    expect(screen.getByText('74 °F')).toBeInTheDocument();
+    expect(loadCityWeather).toHaveBeenCalledExactlyOnceWith(
+      mockWeatherData.city,
+      expect.any(AbortSignal),
+    );
+    expect(readWeatherPreferences().lastCity).toEqual(mockWeatherData.city);
+  });
+
   it('mostra idle e leva o foco ao campo pela ação de busca', async () => {
     const user = userEvent.setup();
     render(<App initialState={{ status: 'idle' }} />);
@@ -64,11 +87,11 @@ describe('App', () => {
     expect(screen.queryByRole('article')).not.toBeInTheDocument();
   });
 
-  it('mostra loading sem clima antigo e desabilita a busca', () => {
+  it('mostra loading sem clima antigo e mantém a busca editável', () => {
     render(<App initialState={{ status: 'loading' }} />);
 
     expect(screen.getByRole('status')).toHaveTextContent('Carregando dados do clima...');
-    expect(screen.getByRole('searchbox', { name: 'Cidade' })).toBeDisabled();
+    expect(screen.getByRole('searchbox', { name: 'Cidade' })).toBeEnabled();
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByRole('article')).not.toBeInTheDocument();
   });
@@ -86,7 +109,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Buscar' }));
     expect(screen.getByRole('status')).toHaveTextContent('Carregando');
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
-    expect(screen.getByRole('searchbox', { name: 'Cidade' })).toBeDisabled();
+    expect(screen.getByRole('searchbox', { name: 'Cidade' })).toBeEnabled();
     expect(loadWeather).toHaveBeenCalledExactlyOnceWith(
       'São Paulo',
       expect.any(AbortSignal),
@@ -133,7 +156,7 @@ describe('App', () => {
     expect(screen.getByRole('main')).toHaveFocus();
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
     await user.tab();
-    expect(screen.getByRole('link', { name: 'Open-Meteo' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Atualizar clima' })).toHaveFocus();
   });
 
   it('mostra empty quando a busca não tem correspondência', async () => {
@@ -247,25 +270,31 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'São Paulo' })).toBeInTheDocument();
   });
 
-  it('informa falha offline e retry usa a consulta que falhou mesmo após editar o campo', async () => {
+  it('busca o novo texto editado depois de uma falha e permite retry', async () => {
     const user = userEvent.setup();
     const loadWeather = vi
       .fn()
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      .mockResolvedValueOnce(mockWeatherData);
-    render(<App loadWeather={loadWeather} />);
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({
+        ...mockWeatherData,
+        city: { ...mockWeatherData.city, id: 'curitiba', name: 'Curitiba' },
+      });
+    render(<App initialState={{ status: 'idle' }} loadWeather={loadWeather} />);
 
     const input = screen.getByRole('searchbox', { name: 'Cidade' });
     await user.type(input, 'São Paulo{Enter}');
     expect(await screen.findByRole('alert')).toHaveTextContent('Verifique sua conexão');
     await user.clear(input);
     await user.type(input, 'Curitiba');
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Verifique sua conexão');
     await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
 
-    expect(await screen.findByRole('heading', { name: 'São Paulo' })).toBeInTheDocument();
-    expect(loadWeather).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole('heading', { name: 'Curitiba' })).toBeInTheDocument();
+    expect(loadWeather).toHaveBeenCalledTimes(3);
     expect(loadWeather).toHaveBeenLastCalledWith(
-      'São Paulo',
+      'Curitiba',
       expect.any(AbortSignal),
       expect.any(Function),
     );

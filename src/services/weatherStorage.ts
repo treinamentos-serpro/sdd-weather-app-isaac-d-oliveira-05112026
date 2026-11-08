@@ -1,7 +1,9 @@
-import type { City, WeatherData } from '../types/weather';
+import type { City, Preferences, TemperatureUnit, WeatherData } from '../types/weather';
 
 const CACHE_KEY = 'weather-app-cache';
+const PREFERENCES_KEY = 'weather-app-preferences';
 const CACHE_TTL_MS = 3 * 60 * 60 * 1000;
+const DEFAULT_PREFERENCES: Preferences = { lastCity: null, temperatureUnit: 'celsius' };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -19,6 +21,55 @@ function validTimestamp(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const time = Date.parse(value);
   return Number.isFinite(time) && new Date(time).toISOString() === value;
+}
+
+function validCity(value: unknown): value is City {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    typeof value.name === 'string' &&
+    value.name.trim().length > 0 &&
+    nullableString(value.admin1) &&
+    nullableString(value.country) &&
+    typeof value.latitude === 'number' &&
+    Number.isFinite(value.latitude) &&
+    Math.abs(value.latitude) <= 90 &&
+    typeof value.longitude === 'number' &&
+    Number.isFinite(value.longitude) &&
+    Math.abs(value.longitude) <= 180
+  );
+}
+
+function validTemperatureUnit(value: unknown): value is TemperatureUnit {
+  return value === 'celsius' || value === 'fahrenheit';
+}
+
+export function readWeatherPreferences(): Preferences {
+  try {
+    const raw = localStorage.getItem(PREFERENCES_KEY);
+    if (!raw) return DEFAULT_PREFERENCES;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return DEFAULT_PREFERENCES;
+    return {
+      lastCity: validCity(parsed.lastCity) ? parsed.lastCity : null,
+      temperatureUnit: validTemperatureUnit(parsed.temperatureUnit)
+        ? parsed.temperatureUnit
+        : 'celsius',
+    };
+  } catch {
+    console.warn('Não foi possível ler as preferências meteorológicas.');
+    return DEFAULT_PREFERENCES;
+  }
+}
+
+export function updateWeatherPreferences(updates: Partial<Preferences>): void {
+  try {
+    const preferences = { ...readWeatherPreferences(), ...updates };
+    localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+  } catch {
+    console.warn('Não foi possível armazenar as preferências meteorológicas.');
+  }
 }
 
 function validSnapshot(value: unknown): value is WeatherData {
