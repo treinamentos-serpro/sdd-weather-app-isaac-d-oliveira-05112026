@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   workflow_run:
-    workflows: ["SDD Guard"]
+    workflows: ["CI"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -23,18 +23,63 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version-file: ".nvmrc"
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - name: Build app
+        run: pnpm build
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/app/
+      - name: Assemble Pages artifact
+        env:
+          APP_BASE: /${{ github.event.repository.name }}/app/
+        run: |
+          mkdir -p _site/app _site/workshop
+          cp -a docs/. _site/
+          cp -a dist/. _site/app/
+          cp -a workshop/. _site/workshop/
+          test -f _site/.nojekyll
+          test -f _site/index.html
+          test -f _site/app/index.html
+          test -f _site/workshop/module-11-delivery/README.md
+          test ! -e _site/.github
+          test ! -e _site/src
+          test ! -e _site/tests
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const appBase = process.env.APP_BASE;
+          const html = fs.readFileSync('_site/app/index.html', 'utf8');
+          const assetUrls = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
+            .map(([, url]) => url)
+            .filter((url) => url.includes('/assets/'));
+
+          if (assetUrls.length === 0) {
+            throw new Error('No built assets found in app index.html');
+          }
+
+          for (const url of assetUrls) {
+            if (!url.startsWith(`${appBase}assets/`)) {
+              throw new Error(`Asset URL does not use APP_BASE: ${url}`);
+            }
+
+            const assetPath = path.join('_site/app', url.slice(appBase.length));
+            if (!fs.existsSync(assetPath)) {
+              throw new Error(`Referenced asset is missing: ${assetPath}`);
+            }
+          }
+
+          console.log(`Verified ${assetUrls.length} app asset URLs`);
+          NODE
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: dist
+          path: _site
 
   deploy:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'

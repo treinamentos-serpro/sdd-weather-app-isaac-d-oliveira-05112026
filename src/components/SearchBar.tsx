@@ -1,43 +1,44 @@
-import { useState, type FormEvent } from 'react';
+import { type FormEvent, useId, useState } from 'react';
 
 interface SearchBarProps {
   onSearch: (city: string) => void;
+  onQueryChange?: (city: string) => void;
   disabled?: boolean;
 }
 
-/** Barra de busca de cidade. Bloqueia submit com input vazio. */
-export default function SearchBar({ onSearch, disabled }: SearchBarProps) {
-  const [value, setValue] = useState('');
+export default function SearchBar({ onSearch, onQueryChange, disabled = false }: SearchBarProps) {
+  const inputId = useId();
+  const [city, setCity] = useState('');
+  const query = city.trim();
 
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    onSearch(trimmed);
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (disabled || !query) return;
+    onSearch(query);
   }
 
   return (
-    <form role="search" onSubmit={handleSubmit} className="w-full max-w-md">
-      <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 backdrop-blur-md focus-within:border-accent-500">
-        <span aria-hidden="true" className="text-white/50">
-          🔍
-        </span>
-        <label htmlFor="city-search" className="sr-only">
-          Buscar cidade
-        </label>
+    <form role="search" aria-label="Buscar cidade" onSubmit={handleSubmit} className="w-full">
+      <label htmlFor={inputId} className="mb-2 block text-sm font-medium text-white">
+        Cidade
+      </label>
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row">
         <input
-          id="city-search"
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Buscar cidade…"
-          autoComplete="off"
-          className="flex-1 bg-transparent text-white placeholder-white/40 outline-none"
+          id={inputId}
+          type="search"
+          name="city"
+          value={city}
+          onChange={(event) => {
+            setCity(event.target.value);
+            onQueryChange?.(event.target.value.trim());
+          }}
+          disabled={disabled}
+          className="min-h-11 w-full min-w-0 flex-1 rounded-lg border border-white/40 bg-white/5 px-4 py-3 text-white shadow-glass backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-400 disabled:cursor-not-allowed disabled:opacity-50"
         />
         <button
           type="submit"
-          disabled={disabled || !value.trim()}
-          className="rounded-lg bg-accent-500 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={disabled || !query}
+          className="min-h-11 shrink-0 rounded-lg bg-accent-500 px-5 py-3 font-medium text-white enabled:hover:bg-accent-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Buscar
         </button>
